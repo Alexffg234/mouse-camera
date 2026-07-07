@@ -1,0 +1,32 @@
+{
+  "gesture_mouse_map": {
+    "move_cursor":  { "gesture": "index_finger",    "landmark": "index_tip" },
+    "left_click":   { "gesture": "pinch",           "threshold": 0.15 },
+    "right_click":  { "gesture": "ok_sign" },
+    "double_click": { "gesture": "fist",            "hold_ms": 800 },
+    "scroll_up":    { "gesture": "two_fingers",     "direction": "up" },
+    "scroll_down":  { "gesture": "two_fingers",     "direction": "down" },
+    "drag":         { "gesture": "pinch_hold" }
+  },
+  "sensitivity": {
+    "cursor_speed": 1.5,
+    "scroll_speed": 3,
+    "smoothing_factor": 0.3
+  },
+  "calibration": {
+    "min_x": 0, "max_x": 1920,
+    "min_y": 0, "max_y": 1080
+  },
+  "tracking": {
+    "max_hands": 2,
+    "min_hand_confidence": 0.5,
+    "min_tracking_confidence": 0.5,
+    "debounce_ms": 150,
+    "config_hot_reload": true,
+    "user_lock_timeout_ms": 3000
+  },
+  "multi_angle": {
+    "use_3d_depth": true,
+    "palm_orientation_threshold_deg": 60
+  }
+}
