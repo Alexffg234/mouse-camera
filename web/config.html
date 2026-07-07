@@ -1,0 +1,857 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>手势鼠标配置</title>
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.3/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.js"></script>
+  <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2/dist/tailwind.min.css" rel="stylesheet">
+  <style>
+    [v-cloak] { display: none; }
+    .input-sm { @apply bg-gray-700 text-gray-100 rounded-lg px-3 py-2 text-sm border border-gray-600 focus:border-blue-500 focus:outline-none w-full; }
+    .select-sm { @apply bg-gray-700 text-gray-100 rounded-lg px-3 py-2 text-sm border border-gray-600 focus:border-blue-500 focus:outline-none; }
+    .badge { @apply inline-block px-2 py-0.5 rounded text-xs; }
+    input[type="range"] { @apply w-full accent-blue-500; }
+    .toggle { @apply w-11 h-6 bg-gray-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600; }
+    .tutorial-overlay { animation: fadeIn 0.3s ease; }
+    .tutorial-card { animation: slideUp 0.4s ease; }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideUp { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    video#tutorial-camera { transform: scaleX(-1); border-radius: 0.75rem; object-fit: cover; }
+    canvas#tutorial-canvas { position: absolute; top: 0; left: 0; transform: scaleX(-1); width: 100%; height: 100%; pointer-events: none; }
+    .success-pulse { animation: pulse 0.6s ease infinite; }
+    @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.5; } }
+  </style>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen">
+  <div id="app" v-cloak>
+
+    <!-- Header -->
+    <div class="bg-gray-800 border-b border-gray-700 sticky top-0 z-10">
+      <div class="max-w-5xl mx-auto px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 class="text-xl font-bold">手势鼠标配置</h1>
+          <p class="text-gray-400 text-sm mt-0.5">个性化配置手势与鼠标操作的绑定关系</p>
+        </div>
+        <div class="flex gap-3 items-center">
+          <button @click="showTutorial = true" class="text-gray-400 hover:text-white text-sm transition cursor-pointer">
+            📖 新手引导
+          </button>
+          <button @click="resetConfig" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition cursor-pointer">
+            恢复默认
+          </button>
+          <button @click="saveConfig" :disabled="saving" class="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition disabled:opacity-50 cursor-pointer">
+            {{ saving ? '保存中...' : '保存配置' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tutorial Overlay -->
+    <div v-if="showTutorial" class="tutorial-overlay fixed inset-0 bg-black bg-opacity-70 z-50 flex items-center justify-center p-6">
+      <div class="tutorial-card bg-gray-800 rounded-2xl max-w-3xl w-full overflow-hidden shadow-2xl">
+
+        <!-- Progress bar -->
+        <div class="h-1 bg-gray-700">
+          <div class="h-full bg-blue-500 transition-all duration-300" :style="{ width: ((tutorialStep + 1) / tutorialSteps.length * 100) + '%' }"></div>
+        </div>
+
+        <div class="p-8">
+          <!-- Step indicator -->
+          <div class="text-sm text-gray-400 mb-2">{{ tutorialStep + 1 }} / {{ tutorialSteps.length }}</div>
+
+          <!-- Step content -->
+          <div class="mb-6">
+            <h2 class="text-2xl font-bold mb-2">{{ tutorialSteps[tutorialStep].title }}</h2>
+            <p class="text-gray-300 leading-relaxed">{{ tutorialSteps[tutorialStep].desc }}</p>
+          </div>
+
+          <!-- Camera + Gesture info -->
+          <div class="bg-gray-900 rounded-xl p-6 mb-6">
+            <div class="flex items-start gap-6">
+              <!-- Camera feed -->
+              <div class="w-56 flex-shrink-0">
+                <div class="relative bg-black rounded-lg overflow-hidden aspect-video">
+                  <video id="tutorial-camera" autoplay playsinline class="w-full h-full"></video>
+                  <canvas id="tutorial-canvas"></canvas>
+                  <div v-if="cameraStatus === 'loading'" class="absolute inset-0 flex items-center justify-center bg-gray-900">
+                    <div class="text-center">
+                      <div class="animate-spin text-2xl mb-2">⏳</div>
+                      <span class="text-gray-400 text-xs">摄像头加载中...</span>
+                    </div>
+                  </div>
+                  <div v-else-if="cameraStatus === 'error'" class="absolute inset-0 flex items-center justify-center bg-gray-900">
+                    <div class="text-center">
+                      <div class="text-xl mb-2">📷</div>
+                      <span class="text-gray-400 text-xs">摄像头无法打开</span>
+                    </div>
+                  </div>
+                  <span class="absolute top-2 left-2 bg-red-600 text-white text-[10px] px-1.5 py-0.5 rounded">实时</span>
+                  <span v-if="detectedGesture" class="absolute bottom-2 left-2 right-2 bg-black bg-opacity-70 text-green-400 text-xs text-center px-2 py-1 rounded">
+                    {{ detectedGesture }}
+                  </span>
+                </div>
+                <p class="text-gray-500 text-xs mt-2 text-center">对着摄像头做出手势</p>
+              </div>
+
+              <!-- Gesture info -->
+              <div class="flex-1 flex flex-col justify-center">
+                <div class="text-6xl mb-3">{{ tutorialSteps[tutorialStep].emoji }}</div>
+                <div class="flex flex-col gap-2">
+                  <div v-if="tutorialSteps[tutorialStep].action" class="flex items-center gap-2">
+                    <span class="badge" :class="tutorialSteps[tutorialStep].modeColor">
+                      {{ tutorialSteps[tutorialStep].mode }}
+                    </span>
+                    <span class="text-lg font-medium">{{ tutorialSteps[tutorialStep].action }}</span>
+                  </div>
+                  <div v-if="tutorialSteps[tutorialStep].tip" class="text-gray-400 text-sm">
+                    💡 {{ tutorialSteps[tutorialStep].tip }}
+                  </div>
+                </div>
+
+                <!-- Auto-advance feedback -->
+                <div v-if="currentStepRequiresGesture" class="mt-4">
+                  <div v-if="gestureSuccess" class="success-pulse text-green-400 text-sm font-medium">
+                    ✓ 检测到手势！自动跳转中...
+                  </div>
+                  <div v-else class="flex items-center gap-2">
+                    <div class="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
+                    <span class="text-gray-500 text-xs">等待手势: {{ gestureLabels[currentStepTarget] || currentStepTarget }}</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Skip button -->
+          <button @click="hideTutorial" class="text-gray-400 text-sm hover:text-white transition cursor-pointer">
+            稍后查看
+          </button>
+        </div>
+
+        <!-- Navigation -->
+        <div class="flex items-center justify-between px-8 py-4 border-t border-gray-700">
+          <button v-if="tutorialStep > 0" @click="prevStep"
+            class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition cursor-pointer">
+            ← 上一步
+          </button>
+          <div v-else></div>
+
+          <button v-if="tutorialStep < tutorialSteps.length - 1" @click="nextStep"
+            class="px-6 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition cursor-pointer">
+            下一步 →
+          </button>
+          <button v-else @click="dismissTutorial"
+            class="px-6 py-2 bg-green-600 hover:bg-green-500 rounded-lg text-sm font-medium transition cursor-pointer">
+            开始使用 ✓
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="max-w-5xl mx-auto px-6 py-6">
+
+      <!-- Toast -->
+      <div v-if="toast" :class="toast.error ? 'bg-red-900 border-red-700 text-red-200' : 'bg-green-900 border-green-700 text-green-200'" class="border rounded-lg px-4 py-3 mb-6 transition">
+        {{ toast.message }}
+      </div>
+
+      <!-- Tab Navigation -->
+      <div class="flex gap-1 mb-6 bg-gray-800 rounded-xl p-1">
+        <button v-for="tab in tabs" :key="tab.key"
+          @click="activeTab = tab.key"
+          :class="activeTab === tab.key ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'"
+          class="flex-1 px-4 py-2 rounded-lg text-sm font-medium transition cursor-pointer">
+          {{ tab.label }}
+        </button>
+      </div>
+
+      <!-- Tab: Gesture Binding -->
+      <div v-show="activeTab === 'gesture'">
+
+        <!-- Mode Legend -->
+        <div class="bg-gray-800 rounded-xl p-5 mb-6">
+          <h3 class="text-sm font-semibold mb-3 text-gray-300">触发模式说明</h3>
+          <div class="flex flex-wrap gap-3">
+            <span v-for="m in modeInfo" :key="m.key" class="badge px-3 py-1.5" :class="m.color">
+              <strong>{{ m.label }}</strong> — <span class="text-gray-400">{{ m.desc }}</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- Gesture Overview -->
+        <div class="bg-gray-800 rounded-xl p-6 mb-6">
+          <h2 class="text-lg font-semibold mb-4">当前绑定概览</h2>
+          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div v-for="(cfg, action) in config.gesture_mouse_map" :key="action"
+              class="bg-gray-700 rounded-lg p-3 flex flex-col">
+              <span class="text-gray-400 text-xs">{{ actionLabels[action] }}</span>
+              <span class="text-white font-medium mt-1 text-sm">
+                {{ cfg.trigger.mode === 'transition'
+                  ? gestureLabels[cfg.trigger.from] + ' → ' + gestureLabels[cfg.trigger.to]
+                  : gestureLabels[cfg.trigger.from] }}
+              </span>
+              <div class="flex items-center gap-1.5 mt-auto pt-2">
+                <span class="badge text-[10px]" :class="modeColorClass(cfg.trigger.mode)">{{ modeLabel(cfg.trigger.mode) }}</span>
+                <span class="text-gray-500 text-xs" v-if="cfg.trigger.threshold">thresh: {{ cfg.trigger.threshold }}</span>
+                <span class="text-gray-500 text-xs" v-if="cfg.trigger.hold_ms">{{ cfg.trigger.hold_ms }}ms</span>
+                <span class="text-gray-500 text-xs" v-if="cfg.trigger.swipe_direction">{{ swipeDirLabel(cfg.trigger.swipe_direction) }}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Action Config -->
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">操作配置</h2>
+          <p class="text-gray-400 text-sm mb-5">为每个鼠标操作绑定手势，选择触发模式和参数</p>
+
+          <div class="space-y-4">
+            <div v-for="action in validActions" :key="action" class="border border-gray-700 rounded-lg p-4">
+              <div class="mb-3">
+                <span class="font-medium text-sm">{{ actionLabels[action] }}</span>
+                <code class="ml-2 text-gray-500 text-xs">{{ action }}</code>
+              </div>
+
+              <div class="flex items-center gap-3 mb-3">
+                <label class="text-gray-400 text-xs w-16">触发模式</label>
+                <select v-model="config.gesture_mouse_map[action].trigger.mode" class="select-sm w-40">
+                  <option v-for="m in availableModes" :key="m" :value="m">{{ modeLabel(m) }}</option>
+                </select>
+              </div>
+
+              <div class="ml-19 space-y-3">
+                <template v-if="config.gesture_mouse_map[action].trigger.mode === 'transition'">
+                  <div class="flex items-center gap-3">
+                    <label class="text-gray-400 text-xs w-16">起始手势</label>
+                    <select v-model="config.gesture_mouse_map[action].trigger.from" class="select-sm min-w-[220px]">
+                      <option v-for="g in supportedGestures" :key="g" :value="g">{{ gestureLabels[g] }} ({{ g }})</option>
+                    </select>
+                    <span class="text-gray-500">→</span>
+                    <select v-model="config.gesture_mouse_map[action].trigger.to" class="select-sm min-w-[220px]">
+                      <option v-for="g in supportedGestures" :key="g" :value="g">{{ gestureLabels[g] }} ({{ g }})</option>
+                    </select>
+                  </div>
+                  <div class="flex items-center gap-3">
+                    <label class="text-gray-400 text-xs w-16">超时</label>
+                    <input type="number" min="200" step="100" v-model.number="config.gesture_mouse_map[action].trigger.timeout_ms" class="input-sm w-24">
+                    <span class="text-gray-500 text-xs">ms — 从起始手势到这个时间的窗口内检测</span>
+                  </div>
+                </template>
+
+                <template v-else>
+                  <div class="flex items-center gap-3">
+                    <label class="text-gray-400 text-xs w-16">手势</label>
+                    <select v-model="config.gesture_mouse_map[action].trigger.from" @change="syncTo(action)" class="select-sm min-w-[220px]">
+                      <option v-for="g in supportedGestures" :key="g" :value="g">{{ gestureLabels[g] }} ({{ g }})</option>
+                    </select>
+                  </div>
+
+                  <div class="flex items-center gap-3" v-if="config.gesture_mouse_map[action].trigger.mode === 'hold'">
+                    <label class="text-gray-400 text-xs w-16">长按</label>
+                    <input type="number" min="100" step="50" v-model.number="config.gesture_mouse_map[action].trigger.hold_ms" class="input-sm w-24">
+                    <span class="text-gray-500 text-xs">ms — 保持手势达到时间后触发</span>
+                  </div>
+
+                  <div class="flex items-center gap-3" v-if="config.gesture_mouse_map[action].trigger.mode === 'follow'">
+                    <label class="text-gray-400 text-xs w-16">关键点</label>
+                    <select v-model="config.gesture_mouse_map[action].trigger.landmark" class="select-sm w-36">
+                      <option value="index_tip">食指指尖</option>
+                      <option value="middle_tip">中指指尖</option>
+                      <option value="palm_center">掌心</option>
+                    </select>
+                  </div>
+
+                  <div class="flex items-center gap-3" v-if="config.gesture_mouse_map[action].trigger.mode === 'swipe'">
+                    <label class="text-gray-400 text-xs w-16">方向</label>
+                    <select v-model="config.gesture_mouse_map[action].trigger.swipe_direction" class="select-sm w-36">
+                      <option value="up">上滑 ↑</option>
+                      <option value="down">下滑 ↓</option>
+                      <option value="left">左滑 ←</option>
+                      <option value="right">右滑 →</option>
+                    </select>
+                  </div>
+
+                  <div class="flex items-center gap-3" v-if="config.gesture_mouse_map[action].trigger.mode === 'instant'">
+                    <label class="text-gray-400 text-xs w-16">阈值</label>
+                    <input type="number" step="0.01" min="0.01" v-model.number="config.gesture_mouse_map[action].trigger.threshold" class="input-sm w-24">
+                    <span class="text-gray-500 text-xs">可选 — 捏合距离阈值</span>
+                  </div>
+                </template>
+
+                <input type="hidden" :value="config.gesture_mouse_map[action].trigger.to">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Unused Gestures -->
+        <div class="bg-gray-800 rounded-xl p-6 mt-6">
+          <h2 class="text-lg font-semibold mb-3">未使用的手势</h2>
+          <div v-if="unusedGestures.length" class="flex flex-wrap gap-2">
+            <span v-for="g in unusedGestures" :key="g" class="badge bg-gray-700 text-gray-300">{{ gestureLabels[g] }} ({{ g }})</span>
+          </div>
+          <p v-else class="text-gray-400 text-sm">所有手势已绑定</p>
+        </div>
+      </div>
+
+      <!-- Tab: Sensitivity -->
+      <div v-show="activeTab === 'sensitivity'">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">灵敏度设置</h2>
+          <p class="text-gray-400 text-sm mb-6">调节光标移动速度、滚动速度和平滑度</p>
+
+          <div class="space-y-8">
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-sm font-medium">光标速度</label>
+                <span class="text-blue-400 text-sm font-mono">{{ sens.cursor_speed.toFixed(1) }}</span>
+              </div>
+              <input type="range" min="0.5" max="5" step="0.1" v-model.number="sens.cursor_speed">
+              <div class="flex justify-between text-gray-500 text-xs mt-1">
+                <span>0.5 慢</span><span>5 快</span>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-sm font-medium">滚动速度</label>
+                <span class="text-blue-400 text-sm font-mono">{{ sens.scroll_speed }}</span>
+              </div>
+              <input type="range" min="1" max="10" step="1" v-model.number="sens.scroll_speed">
+              <div class="flex justify-between text-gray-500 text-xs mt-1">
+                <span>1 慢</span><span>10 快</span>
+              </div>
+            </div>
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-sm font-medium">平滑系数</label>
+                <span class="text-blue-400 text-sm font-mono">{{ sens.smoothing_factor.toFixed(2) }}</span>
+              </div>
+              <input type="range" min="0.05" max="1" step="0.05" v-model.number="sens.smoothing_factor">
+              <div class="flex justify-between text-gray-500 text-xs mt-1">
+                <span>更平滑(延迟高)</span><span>更灵敏(抖动)</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Calibration -->
+      <div v-show="activeTab === 'calibration'">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">屏幕校准</h2>
+          <p class="text-gray-400 text-sm mb-6">设置光标可到达的屏幕区域</p>
+          <div class="grid grid-cols-2 gap-6 max-w-lg">
+            <div><label class="text-gray-400 text-xs block mb-1">最小 X</label><input type="number" v-model.number="config.calibration.min_x" class="input-sm"></div>
+            <div><label class="text-gray-400 text-xs block mb-1">最大 X</label><input type="number" v-model.number="config.calibration.max_x" class="input-sm"></div>
+            <div><label class="text-gray-400 text-xs block mb-1">最小 Y</label><input type="number" v-model.number="config.calibration.min_y" class="input-sm"></div>
+            <div><label class="text-gray-400 text-xs block mb-1">最大 Y</label><input type="number" v-model.number="config.calibration.max_y" class="input-sm"></div>
+          </div>
+          <div class="mt-6 bg-gray-700 rounded-lg p-4">
+            <p class="text-sm text-gray-300">当前分辨率: <code>{{ config.calibration.max_x - config.calibration.min_x }} x {{ config.calibration.max_y - config.calibration.min_y }}</code></p>
+            <p class="text-xs text-gray-500 mt-1">按 C 键可在主程序中运行交互式校准向导</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Tracking -->
+      <div v-show="activeTab === 'tracking'">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">追踪设置</h2>
+          <p class="text-gray-400 text-sm mb-6">配置手部追踪和防抖参数</p>
+          <div class="space-y-5 max-w-lg">
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">最大追踪手数</label><p class="text-gray-400 text-xs">同时追踪的手部数量</p></div>
+              <input type="number" min="1" max="4" v-model.number="config.tracking.max_hands" class="input-sm w-20">
+            </div>
+            <div>
+              <div class="flex justify-between mb-1"><label class="text-sm font-medium">手部检测置信度</label><span class="text-blue-400 text-sm font-mono">{{ config.tracking.min_hand_confidence.toFixed(2) }}</span></div>
+              <input type="range" min="0.1" max="1" step="0.05" v-model.number="config.tracking.min_hand_confidence">
+            </div>
+            <div>
+              <div class="flex justify-between mb-1"><label class="text-sm font-medium">追踪置信度</label><span class="text-blue-400 text-sm font-mono">{{ config.tracking.min_tracking_confidence.toFixed(2) }}</span></div>
+              <input type="range" min="0.1" max="1" step="0.05" v-model.number="config.tracking.min_tracking_confidence">
+            </div>
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">防抖间隔</label><p class="text-gray-400 text-xs">连续操作的最小间隔(毫秒)</p></div>
+              <input type="number" min="0" step="10" v-model.number="config.tracking.debounce_ms" class="input-sm w-20"><span class="text-gray-500 text-xs ml-1">ms</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">用户锁定超时</label><p class="text-gray-400 text-xs">失去追踪后保持锁定的时间</p></div>
+              <input type="number" min="0" step="100" v-model.number="config.tracking.user_lock_timeout_ms" class="input-sm w-20"><span class="text-gray-500 text-xs ml-1">ms</span>
+            </div>
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">配置热加载</label><p class="text-gray-400 text-xs">运行时自动检测 config.json 变化</p></div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" v-model="config.tracking.config_hot_reload" class="sr-only peer">
+                <div class="toggle"></div>
+              </label>
+            </div>
+          </div>
+        </div>
+        <div class="bg-gray-800 rounded-xl p-6 mt-6">
+          <h2 class="text-lg font-semibold mb-1">多角度</h2>
+          <p class="text-gray-400 text-sm mb-5">3D深度和手掌方向检测</p>
+          <div class="space-y-4 max-w-lg">
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">使用3D深度</label><p class="text-gray-400 text-xs">启用3D深度信息追踪</p></div>
+              <label class="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" v-model="config.multi_angle.use_3d_depth" class="sr-only peer">
+                <div class="toggle"></div>
+              </label>
+            </div>
+            <div class="flex items-center justify-between">
+              <div><label class="text-sm font-medium">手掌方向阈值</label><p class="text-gray-400 text-xs">最大检测角度(度)</p></div>
+              <input type="number" min="10" max="180" v-model.number="config.multi_angle.palm_orientation_threshold_deg" class="input-sm w-20"><span class="text-gray-500 text-xs ml-1">°</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Import/Export -->
+      <div v-show="activeTab === 'import_export'">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">导入 / 导出</h2>
+          <p class="text-gray-400 text-sm mb-6">备份配置或分享到其他设备</p>
+          <div class="flex gap-3 mb-6">
+            <button @click="exportJSON" class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition cursor-pointer">导出 JSON</button>
+            <label class="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded-lg text-sm transition cursor-pointer">
+              导入 JSON
+              <input type="file" accept=".json" @change="importJSON" class="hidden">
+            </label>
+          </div>
+          <div class="bg-gray-900 rounded-lg p-4">
+            <textarea v-model="configText" rows="12" class="w-full bg-transparent text-gray-300 text-xs font-mono resize-none focus:outline-none"></textarea>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const { createApp, ref, computed, watch, onMounted, nextTick } = Vue;
+
+    createApp({
+      setup() {
+        const config = ref({});
+        const metadata = ref({ supported_gestures: [], valid_actions: [] });
+        const saving = ref(false);
+        const toast = ref(null);
+        const activeTab = ref('gesture');
+
+        // Tutorial state
+        const showTutorial = ref(localStorage.getItem('gesture_tutorial_done_v3') !== 'true');
+        const tutorialStep = ref(0);
+        const cameraStatus = ref('idle'); // idle, loading, ready, error
+        const detectedGesture = ref('');
+        const gestureSuccess = ref(false);
+        const transitionFromDetected = ref(false);
+
+        // MediaPipe refs
+        let handsInstance = null;
+        let mpCamera = null;
+        let gestureHistory = [];
+        const STABILITY_FRAMES = 5;
+
+        const gestureLabels = {
+          open_palm: '摊手掌', index_finger: '食指', middle_index: '食中指',
+          pinch: '捏合', fist: '握拳', ok_sign: 'OK', thumb_up: '赞',
+          two_fingers: '两指', palm_up: '掌心朝上', palm_down: '掌心朝下',
+          palm_left: '掌心朝左', palm_right: '掌心朝右',
+          swipe_up: '上滑', swipe_down: '下滑', swipe_left: '左滑', swipe_right: '右滑',
+          pinch_hold: '捏合长按',
+        };
+
+        const actionLabels = {
+          move_cursor: '移动光标', left_click: '左键点击', right_click: '右键点击',
+          double_click: '双击', scroll_up: '向上滚动', scroll_down: '向下滚动',
+          drag: '拖拽', show_desktop: '显示桌面',
+        };
+
+        const tutorialSteps = [
+          {
+            title: '欢迎使用手势鼠标控制',
+            desc: '通过摄像头捕捉你的手势来操控鼠标。在开始使用前，让我们花 1 分钟了解基本手势。',
+            emoji: '👋', action: null, mode: null, modeColor: '',
+            tip: '确保摄像头能清楚看到你的手掌',
+            targetGesture: null,
+          },
+          {
+            title: '移动光标 — 食指',
+            desc: '伸出食指，摄像头会追踪你的指尖位置，光标会随之移动。手向右移光标向右，手向上光标向上。',
+            emoji: '☝️', action: '移动光标', mode: '跟随', modeColor: 'bg-green-900 text-green-300',
+            tip: '只有食指伸直，其余手指握紧',
+            targetGesture: 'index_finger',
+          },
+          {
+            title: '左键点击 — 捏合',
+            desc: '拇指和食指捏在一起，松开即完成点击。这是最常用的操作。',
+            emoji: '🤏', action: '左键点击', mode: '瞬时', modeColor: 'bg-blue-900 text-blue-300',
+            tip: '捏合后自然松开即可，不需要保持',
+            targetGesture: 'pinch',
+          },
+          {
+            title: '右键点击 — OK 手势',
+            desc: '拇指和食指指尖相触成圈，其余三指伸直。',
+            emoji: '👌', action: '右键点击', mode: '瞬时', modeColor: 'bg-blue-900 text-blue-300',
+            tip: '食指要弯曲成圈，不要伸直',
+            targetGesture: 'ok_sign',
+          },
+          {
+            title: '双击 — 握拳长按',
+            desc: '握紧拳头并保持不动 800ms，屏幕上会显示进度条。进度满后触发双击。',
+            emoji: '✊', action: '双击', mode: '长按', modeColor: 'bg-yellow-900 text-yellow-300',
+            tip: '保持握拳不要松手，直到看到进度条走完',
+            targetGesture: 'fist',
+          },
+          {
+            title: '滚动 — 两指滑动',
+            desc: '伸出食指和中指，手掌上下滑动来滚动页面。',
+            emoji: '✌️', action: '向上/下滚动', mode: '滑动', modeColor: 'bg-purple-900 text-purple-300',
+            tip: '两指并拢伸直，用手掌整体移动，不是单独动指头',
+            targetGesture: 'two_fingers',
+          },
+          {
+            title: '拖拽 — 捏合保持',
+            desc: '拇指和食指持续捏合超过 300ms 后进入拖拽模式，移动手即可拖动。',
+            emoji: '🤏', action: '拖拽', mode: '跟随', modeColor: 'bg-green-900 text-green-300',
+            tip: '捏合后不要松开，保持住再移动',
+            targetGesture: 'pinch',
+          },
+          {
+            title: '显示桌面 — 摊手变握拳',
+            desc: '先摊开手掌，然后握紧拳头。这个过渡动作会最小化所有窗口显示桌面。',
+            emoji: '🤚✊', action: '显示桌面', mode: '过渡', modeColor: 'bg-pink-900 text-pink-300',
+            tip: '先做摊手，再做握拳，在 2 秒内完成过渡即可触发',
+            targetGesture: 'transition', from: 'open_palm', to: 'fist',
+          },
+          {
+            title: '准备好开始',
+            desc: '现在你已经了解了所有手势，可以开始使用了。随时可以在配置页面查看和调整手势绑定。',
+            emoji: '🎉', action: null, mode: null, modeColor: '',
+            tip: '可以在"手势绑定"页面添加更多自定义绑定',
+            targetGesture: 'open_palm',
+          },
+        ];
+
+        const currentStepTarget = computed(() => {
+          const step = tutorialSteps[tutorialStep.value];
+          if (!step) return null;
+          if (step.targetGesture === 'transition') return step.to;
+          return step.targetGesture;
+        });
+
+        const currentStepRequiresGesture = computed(() => !!currentStepTarget.value);
+
+        const tabs = [
+          { key: 'gesture', label: '手势绑定' },
+          { key: 'sensitivity', label: '灵敏度' },
+          { key: 'calibration', label: '校准' },
+          { key: 'tracking', label: '追踪' },
+          { key: 'import_export', label: '导入/导出' },
+        ];
+
+        const modeInfo = [
+          { key: 'instant', label: '瞬时', color: 'bg-blue-900 text-blue-200', desc: '检测到立即触发' },
+          { key: 'hold', label: '长按', color: 'bg-yellow-900 text-yellow-200', desc: '保持手势 N ms 后触发' },
+          { key: 'follow', label: '跟随', color: 'bg-green-900 text-green-200', desc: '持续跟随关键点位置' },
+          { key: 'swipe', label: '滑动', color: 'bg-purple-900 text-purple-200', desc: '手势+滑动方向区分' },
+          { key: 'transition', label: '过渡', color: 'bg-pink-900 text-pink-200', desc: '从 A 手势变到 B 手势' },
+        ];
+
+        const modeLabels = { instant: '瞬时', hold: '长按', follow: '跟随', swipe: '滑动', transition: '过渡' };
+        const modeColors = {
+          instant: 'bg-blue-900 text-blue-300', hold: 'bg-yellow-900 text-yellow-300',
+          follow: 'bg-green-900 text-green-300', swipe: 'bg-purple-900 text-purple-300',
+          transition: 'bg-pink-900 text-pink-300',
+        };
+        const availableModes = Object.keys(modeLabels);
+        const swipeDirLabels = { up: '上滑 ↑', down: '下滑 ↓', left: '左滑 ←', right: '右滑 →' };
+
+        const defaultConfig = {
+          gesture_mouse_map: {
+            move_cursor:  { trigger: { from: "index_finger", to: "index_finger", mode: "follow", landmark: "index_tip" } },
+            left_click:   { trigger: { from: "pinch", to: "pinch", mode: "instant", threshold: 0.15 } },
+            right_click:  { trigger: { from: "ok_sign", to: "ok_sign", mode: "instant" } },
+            double_click: { trigger: { from: "fist", to: "fist", mode: "hold", hold_ms: 800 } },
+            scroll_up:    { trigger: { from: "two_fingers", to: "two_fingers", mode: "swipe", swipe_direction: "up" } },
+            scroll_down:  { trigger: { from: "two_fingers", to: "two_fingers", mode: "swipe", swipe_direction: "down" } },
+            drag:         { trigger: { from: "pinch_hold", to: "pinch_hold", mode: "follow", landmark: "index_tip" } },
+            show_desktop: { trigger: { from: "open_palm", to: "fist", mode: "transition", timeout_ms: 2000 } },
+          },
+          sensitivity: { cursor_speed: 1.5, scroll_speed: 3, smoothing_factor: 0.3 },
+          calibration: { min_x: 0, max_x: 1920, min_y: 0, max_y: 1080 },
+          tracking: { max_hands: 2, min_hand_confidence: 0.5, min_tracking_confidence: 0.5, debounce_ms: 150, config_hot_reload: true, user_lock_timeout_ms: 3000 },
+          multi_angle: { use_3d_depth: true, palm_orientation_threshold_deg: 60 },
+        };
+
+        const supportedGestures = computed(() => metadata.value.supported_gestures);
+        const validActions = computed(() => metadata.value.valid_actions);
+        const sens = computed(() => config.value.sensitivity || {});
+
+        const unusedGestures = computed(() => {
+          const used = new Set();
+          Object.values(config.value.gesture_mouse_map || {}).forEach(cfg => {
+            const tr = cfg.trigger;
+            if (tr.from) used.add(tr.from);
+            if (tr.to) used.add(tr.to);
+          });
+          return supportedGestures.value.filter(g => !used.has(g));
+        });
+
+        const configText = computed({
+          get: () => JSON.stringify(config.value, null, 2),
+          set: (val) => { try { config.value = JSON.parse(val); } catch {} },
+        });
+
+        function modeLabel(m) { return modeLabels[m] || m; }
+        function modeColorClass(m) { return modeColors[m] || 'bg-gray-700 text-gray-300'; }
+        function swipeDirLabel(d) { return swipeDirLabels[d] || d; }
+
+        function syncTo(action) { syncNonTransitionTo(action); }
+        function syncNonTransitionTo(action) {
+          const tr = config.value.gesture_mouse_map?.[action]?.trigger;
+          if (tr && tr.mode !== 'transition') tr.to = tr.from;
+        }
+
+        watch(() => config.value, (val) => {
+          if (!val?.gesture_mouse_map) return;
+          Object.keys(val.gesture_mouse_map).forEach(syncNonTransitionTo);
+        }, { deep: true });
+
+        function showToast(msg, error = false) {
+          toast.value = { message: msg, error };
+          setTimeout(() => { toast.value = null; }, 3000);
+        }
+
+        async function loadConfig() {
+          try {
+            const [cfg, meta] = await Promise.all([
+              fetch('/api/config').then(r => r.json()),
+              fetch('/api/metadata').then(r => r.json()),
+            ]);
+            config.value = cfg;
+            metadata.value = meta;
+          } catch (e) { showToast('加载配置失败: ' + e.message, true); }
+        }
+
+        async function saveConfig() {
+          saving.value = true;
+          try {
+            const res = await fetch('/api/config', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(config.value),
+            });
+            const result = await res.json();
+            if (res.ok) showToast('配置已保存，主程序将自动热加载');
+            else showToast(result.error || '保存失败', true);
+          } catch (e) { showToast('保存失败: ' + e.message, true); }
+          saving.value = false;
+        }
+
+        function resetConfig() {
+          if (confirm('确定恢复默认配置？')) {
+            config.value = JSON.parse(JSON.stringify(defaultConfig));
+            showToast('已恢复默认，请点保存');
+          }
+        }
+
+        function exportJSON() {
+          const blob = new Blob([JSON.stringify(config.value, null, 2)], { type: 'application/json' });
+          const a = document.createElement('a');
+          a.href = URL.createObjectURL(blob);
+          a.download = 'mouse_config.json';
+          a.click();
+        }
+
+        function importJSON(e) {
+          const file = e.target.files[0]; if (!file) return;
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            try { config.value = JSON.parse(ev.target.result); showToast('已导入，请点保存生效'); }
+            catch { showToast('JSON 解析失败', true); }
+          };
+          reader.readAsText(file);
+        }
+
+        // --- Tutorial gesture detection (MediaPipe) ---
+
+        function dist2d(a, b) {
+          return Math.sqrt((a.x - b.x) ** 2 + (a.y - b.y) ** 2);
+        }
+
+        function fingerExtended(lms, tip, pip) {
+          return dist2d(lms[0], lms[tip]) > dist2d(lms[0], lms[pip]) * 1.05;
+        }
+
+        function classifyGesture(lms) {
+          const idxExt = fingerExtended(lms, 8, 6);
+          const midExt = fingerExtended(lms, 12, 10);
+          const ringExt = fingerExtended(lms, 16, 14);
+          const pinkyExt = fingerExtended(lms, 20, 18);
+          const pinchDist = dist2d(lms[4], lms[8]);
+          const handWidth = dist2d(lms[0], lms[17]);
+
+          if (pinchDist < 0.08 + handWidth * 0.15) return 'pinch';
+          if (!idxExt && midExt && ringExt && pinkyExt && pinchDist < 0.15 + handWidth * 0.15) return 'ok_sign';
+          const ext = [idxExt, midExt, ringExt, pinkyExt].filter(Boolean).length;
+          if (ext === 0) return 'fist';
+          if (ext === 4) return 'open_palm';
+          if (ext === 1 && idxExt && !midExt) return 'index_finger';
+          if (ext === 2 && idxExt && midExt) return 'two_fingers';
+          return 'unknown';
+        }
+
+        function startTutorialCamera() {
+          nextTick(() => {
+            cameraStatus.value = 'loading';
+            const videoEl = document.getElementById('tutorial-camera');
+            const canvasEl = document.getElementById('tutorial-canvas');
+
+            if (!videoEl) {
+              console.warn('tutorial-camera video element not found');
+              cameraStatus.value = 'error';
+              return;
+            }
+
+            canvasEl.width = 640;
+            canvasEl.height = 480;
+
+            handsInstance = new Hands({
+              locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/${file}`
+            });
+            handsInstance.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.5 });
+            handsInstance.onResults(onHandResults);
+
+            mpCamera = new Camera(videoEl, {
+              onFrame: async () => {
+                if (handsInstance && videoEl.readyState >= 2) {
+                  try { await handsInstance.send({ image: videoEl }); } catch {}
+                }
+              },
+              width: 640, height: 480,
+            });
+            mpCamera.start().then(() => {
+              cameraStatus.value = 'ready';
+            }).catch(() => {
+              cameraStatus.value = 'error';
+            });
+          });
+        }
+
+        function stopTutorialCamera() {
+          if (mpCamera) { mpCamera.stop(); mpCamera = null; }
+          if (handsInstance) { handsInstance.close(); handsInstance = null; }
+          gestureHistory = [];
+          detectedGesture.value = '';
+          gestureSuccess.value = false;
+          transitionFromDetected.value = false;
+          cameraStatus.value = 'idle';
+        }
+
+        function onHandResults(results) {
+          const ctx = document.getElementById('tutorial-canvas')?.getContext('2d');
+          if (ctx) {
+            ctx.clearRect(0, 0, 640, 480);
+            if (results.multiHandLandmarks) {
+              for (const landmarks of results.multiHandLandmarks) {
+                drawConnectors(ctx, landmarks, HAND_CONNECTIONS, { color: 'rgba(0,255,0,0.5)', lineWidth: 2 });
+                drawLandmarks(ctx, landmarks, { color: 'rgb(255,0,0)', lineWidth: 1, radius: 3 });
+              }
+            }
+          }
+
+          const step = tutorialSteps[tutorialStep.value];
+          if (!step || !step.targetGesture || step.targetGesture === null) return;
+
+          if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            const raw = classifyGesture(results.multiHandLandmarks[0]);
+            gestureHistory.push(raw);
+            if (gestureHistory.length > STABILITY_FRAMES) gestureHistory.shift();
+
+            if (gestureHistory.length >= STABILITY_FRAMES) {
+              const counts = {};
+              gestureHistory.forEach(g => counts[g] = (counts[g] || 0) + 1);
+              const stable = Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0];
+              detectedGesture.value = gestureLabels[stable] || stable;
+
+              // Check for transition
+              if (step.targetGesture === 'transition') {
+                if (stable === step.from) transitionFromDetected.value = true;
+                if (transitionFromDetected.value && stable === step.to) {
+                  triggerAutoAdvance();
+                }
+              } else if (stable === step.targetGesture) {
+                triggerAutoAdvance();
+              }
+            }
+          } else {
+            detectedGesture.value = '';
+          }
+        }
+
+        function triggerAutoAdvance() {
+          if (gestureSuccess.value) return;
+          gestureSuccess.value = true;
+          setTimeout(() => {
+            if (tutorialStep.value < tutorialSteps.length - 1) {
+              nextStep();
+            } else {
+              dismissTutorial();
+            }
+          }, 800);
+        }
+
+        function prevStep() {
+          tutorialStep.value--;
+          gestureSuccess.value = false;
+          transitionFromDetected.value = false;
+          gestureHistory = [];
+          detectedGesture.value = '';
+        }
+
+        function nextStep() {
+          tutorialStep.value++;
+          gestureSuccess.value = false;
+          transitionFromDetected.value = false;
+          gestureHistory = [];
+          detectedGesture.value = '';
+        }
+
+        function dismissTutorial() {
+          showTutorial.value = false;
+          localStorage.setItem('gesture_tutorial_done_v3', 'true');
+        }
+
+        function hideTutorial() {
+          showTutorial.value = false;
+        }
+
+        // Watch tutorial visibility
+        watch(showTutorial, (val) => {
+          if (val) startTutorialCamera();
+          else stopTutorialCamera();
+        });
+
+        onMounted(loadConfig);
+
+        return {
+          config, metadata, saving, toast, activeTab, tabs,
+          gestureLabels, actionLabels, supportedGestures, validActions,
+          sens, unusedGestures, configText, defaultConfig,
+          modeInfo, modeLabel, modeColorClass, swipeDirLabel, availableModes,
+          saveConfig, resetConfig, exportJSON, importJSON, syncTo,
+          showTutorial, tutorialStep, tutorialSteps, dismissTutorial, hideTutorial,
+          cameraStatus, detectedGesture, gestureSuccess,
+          currentStepTarget, currentStepRequiresGesture,
+          nextStep, prevStep,
+        };
+      }
+    }).mount('#app');
+  </script>
+</body>
+</html>

@@ -1,7 +1,12 @@
+import ctypes
 import time
 from typing import Optional
 
 import pyautogui
+
+# VK_LWIN = 0x5B
+KEYEVENTF_KEYUP = 0x0002
+user32 = ctypes.windll.user32
 
 
 class MouseController:
@@ -44,6 +49,7 @@ class MouseController:
             "scroll_up": self._scroll_up,
             "scroll_down": self._scroll_down,
             "drag": self._drag,
+            "show_desktop": self._show_desktop,
         }.get(action)
 
         if handler:
@@ -83,6 +89,12 @@ class MouseController:
 
     def _double_click(self, *_):
         pyautogui.click(button="left", clicks=2, interval=0.05)
+
+    def _show_desktop(self, *_):
+        user32.keybd_event(0x5B, 0, 0, 0)
+        user32.keybd_event(0x44, 0, 0, 0)
+        user32.keybd_event(0x44, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(0x5B, 0, KEYEVENTF_KEYUP, 0)
 
     def _scroll_up(self, *_):
         speed = self._sensitivity.get("scroll_speed", 3)

@@ -1,29 +1,35 @@
+import os
 import sys
 import time
 
 import cv2
 
 from calibration import CalibrationHelper
+from config_server import start_server
 from gesture_mapper import GestureMapper
 from gesture_recognizer import GestureRecognizer
 from hand_tracker import HandTracker
 from mouse_controller import MouseController
 from user_tracker import UserTracker
 
+# Fix Windows console Chinese output
+if sys.platform == "win32":
+    os.environ["PYTHONIOENCODING"] = "utf-8"
+
 
 def draw_overlay(frame, gesture: str, action: str, hold_progress: float,
-                 user_status: dict, fps: float):
+                 user_status: dict, fps: float, transitions: list):
     h, w = frame.shape[:2]
     y = 30
     line_h = 25
 
     if gesture:
-        cv2.putText(frame, f"Gesture: {gesture}", (10, y),
+        cv2.putText(frame, f"手势: {gesture}", (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         y += line_h
 
     if action:
-        cv2.putText(frame, f"Action: {action}", (10, y),
+        cv2.putText(frame, f"操作: {action}", (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
         y += line_h
 
@@ -33,10 +39,16 @@ def draw_overlay(frame, gesture: str, action: str, hold_progress: float,
         cv2.rectangle(frame, (10, y - 12), (10 + bar_w, y + 2), (0, 255, 0), -1)
         y += 20
 
+    for t in transitions:
+        if t.get("fired"):
+            cv2.putText(frame, f"过渡: {t['from']} -> {t['to']}", (10, y),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 255), 2)
+            y += line_h
+
     locked = user_status.get("locked", False)
     depth = user_status.get("depth")
     if locked and depth is not None:
-        cv2.putText(frame, f"Locked (d={depth:.2f})", (10, y),
+        cv2.putText(frame, f"已锁定 (d={depth:.2f})", (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 200, 255), 2)
         y += line_h
 
@@ -45,9 +57,10 @@ def draw_overlay(frame, gesture: str, action: str, hold_progress: float,
 
 
 def main():
-    print("Camera Mouse Control — press Q to quit, C for calibration")
+    print("手势鼠标控制 — 按 Q 退出，按 C 校准")
 
     config_path = sys.argv[1] if len(sys.argv) > 1 else "config.json"
+    start_server(config_path=config_path)
     mapper = GestureMapper(config_path)
     config = mapper.get_config()
 
@@ -66,12 +79,15 @@ def main():
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
     if not cap.isOpened():
-        print("ERROR: Cannot open camera")
+        print("错误：无法打开摄像头")
         return
 
     hold_start: dict[str, float] = {}
+    transition_state: dict[str, dict] = {}
+    prev_stable_gesture = ""
     prev_time = time.time()
     fps = 30.0
+    TIP_MAP = {"index_tip": 8, "middle_tip": 12, "palm_center": 9}
 
     try:
         while True:
@@ -87,7 +103,7 @@ def main():
             if mapper.check_reload():
                 config = mapper.get_config()
                 mouse_ctrl.update_config(config)
-                print("[reload] config.json updated")
+                print("[热加载] config.json 已更新")
 
             # Hand tracking
             all_hands = tracker.process(frame)
@@ -95,56 +111,93 @@ def main():
 
             current_gesture = ""
             current_action = ""
-            landmark_pos = None
+            hold_progress = 0.0
+            trans_info = []
 
             if selected:
                 tracker.draw(frame, [selected])
                 current_gesture = recognizer.recognize(selected, now)
                 current_time_ms = now * 1000
 
-                if current_gesture != "none":
-                    action_name = mapper.get_action_for_gesture(current_gesture)
-                    if action_name:
-                        params = mapper.get_action_params(action_name)
-                        hold_ms = params.get("hold_ms")
-
-                        if hold_ms and action_name not in hold_start:
-                            hold_start[action_name] = current_time_ms
-
-                        if hold_ms:
-                            elapsed = current_time_ms - hold_start.get(action_name, current_time_ms)
-                            progress = min(elapsed / hold_ms, 1.0)
-                            if elapsed >= hold_ms:
-                                current_action = action_name
-                                lm_key = params.get("landmark", "index_tip")
-                                tip_map = {"index_tip": 8, "middle_tip": 12, "palm_center": 9}
-                                tip_id = tip_map.get(lm_key, 8)
-                                pos = selected.get(tip_id)
-                                mouse_ctrl.execute(action_name, params, pos)
-                                del hold_start[action_name]
-                            hold_progress = progress
-                        else:
-                            current_action = action_name
-                            hold_progress = 0.0
-                            lm_key = params.get("landmark", "index_tip")
-                            tip_map = {"index_tip": 8, "middle_tip": 12, "palm_center": 9}
-                            tip_id = tip_map.get(lm_key, 8)
-                            pos = selected.get(tip_id)
-                            mouse_ctrl.execute(action_name, params, pos)
+                # --- Transition detection ---
+                all_transitions = mapper.get_transitions()
+                for t in all_transitions:
+                    key = f"{t['from']}->{t['to']}"
+                    t_state = transition_state.get(key)
+                    if t_state is None:
+                        if prev_stable_gesture == t["from"]:
+                            transition_state[key] = {"fired": False, "ts": now}
                     else:
-                        hold_progress = 0.0
-                else:
-                    hold_progress = 0.0
+                        elapsed = (now - t_state["ts"]) * 1000
+                        if elapsed > t["timeout_ms"]:
+                            del transition_state[key]
+                            continue
+                        if current_gesture == t["to"] and not t_state["fired"]:
+                            current_action = t["action"]
+                            mouse_ctrl.execute(t["action"], mapper.get_action_params(t["action"]))
+                            t_state["fired"] = True
+                    trans_info.append({"from": t["from"], "to": t["to"], "fired": transition_state.get(key, {}).get("fired", False)})
 
-                if not current_gesture or current_gesture == "none":
+                # --- Process all triggers by mode ---
+                gm = config.get("gesture_mouse_map", {})
+
+                # Follow mode: continuous landmark tracking
+                follow_actions = mapper.get_follow_actions()
+                for action_name in follow_actions:
+                    trigger = mapper.get_trigger(action_name)
+                    if trigger["from"] == current_gesture:
+                        landmark = trigger.get("landmark", "index_tip")
+                        tip_id = TIP_MAP.get(landmark, 8)
+                        pos = selected.get(tip_id)
+                        mouse_ctrl.execute(action_name, mapper.get_action_params(action_name), pos)
+
+                # Swipe mode: call detect_swipe once per gesture, dispatch by direction
+                swipe_dir = recognizer.detect_swipe(selected)
+                if swipe_dir:
+                    for action_name, action_cfg in gm.items():
+                        trigger = action_cfg.get("trigger", {})
+                        if (trigger.get("mode") == "swipe"
+                                and trigger["from"] == current_gesture
+                                and trigger.get("swipe_direction") == swipe_dir):
+                            current_action = action_name
+                            mouse_ctrl.execute(action_name, mapper.get_action_params(action_name))
+
+                # Instant & Hold mode
+                for action_name, action_cfg in gm.items():
+                    trigger = action_cfg.get("trigger", {})
+                    mode = trigger.get("mode")
+                    if mode == "instant" and trigger["from"] == current_gesture:
+                        current_action = action_name
+                        mouse_ctrl.execute(action_name, mapper.get_action_params(action_name))
+                    elif mode == "hold" and trigger["from"] == current_gesture:
+                        if action_name not in hold_start:
+                            hold_start[action_name] = current_time_ms
+                        elapsed = current_time_ms - hold_start[action_name]
+                        hold_ms = trigger.get("hold_ms", 800)
+                        progress = min(elapsed / hold_ms, 1.0)
+                        if elapsed >= hold_ms:
+                            current_action = action_name
+                            lm_key = trigger.get("landmark", "index_tip")
+                            tip_id = TIP_MAP.get(lm_key, 8)
+                            pos = selected.get(tip_id)
+                            mouse_ctrl.execute(action_name, mapper.get_action_params(action_name), pos)
+                            del hold_start[action_name]
+                        hold_progress = max(hold_progress, progress)
+
+                # Stop drag if no follow gesture active
+                if current_gesture not in (t["from"] for a in follow_actions for t in [mapper.get_trigger(a)]):
                     mouse_ctrl.stop_drag()
 
+                # Update stable gesture for transition tracking
+                if current_gesture != "none":
+                    prev_stable_gesture = current_gesture
+
             else:
-                hold_progress = 0.0
                 mouse_ctrl.stop_drag()
+                prev_stable_gesture = ""
 
             draw_overlay(frame, current_gesture, current_action, hold_progress,
-                         user_trk.get_status(), fps)
+                         user_trk.get_status(), fps, trans_info)
 
             cv2.imshow("Camera Mouse Control", frame)
             key = cv2.waitKey(1) & 0xFF
@@ -169,7 +222,7 @@ def main():
         tracker.close()
         cv2.destroyAllWindows()
 
-    print("Stopped.")
+    print("已停止。")
 
 
 if __name__ == "__main__":

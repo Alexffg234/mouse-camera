@@ -8,7 +8,7 @@ from hand_tracker import HandTracker
 
 
 class CalibrationHelper:
-    CORNERS = ["TOP-LEFT", "TOP-RIGHT", "BOTTOM-RIGHT", "BOTTOM-LEFT"]
+    CORNERS = ["左上", "右上", "右下", "左下"]
 
     def __init__(self, config_path: str = "config.json"):
         self.config_path = config_path
@@ -21,7 +21,7 @@ class CalibrationHelper:
         cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 
         if not cap.isOpened():
-            print("ERROR: Cannot open camera for calibration")
+            print("错误：无法打开摄像头进行校准")
             return
 
         screen = self._get_screen_size()
@@ -31,7 +31,7 @@ class CalibrationHelper:
             (screen[0], screen[1]),
             (0, screen[1]),
         ]
-        detected: list = []
+        detected = []
         current = 0
 
         try:
@@ -41,7 +41,7 @@ class CalibrationHelper:
                     break
 
                 hands = self.tracker.process(frame)
-                text = f"Point index finger to {self.CORNERS[current]}\nPress Space to confirm"
+                text = f"食指指向屏幕{self.CORNERS[current]}\n按空格确认"
                 cv2.putText(frame, text, (20, 50),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
 
@@ -60,9 +60,9 @@ class CalibrationHelper:
                     if idx_tip:
                         detected.append((idx_tip, corner_positions[current]))
                         current += 1
-                        print(f"  Corner {current}/4: {self.CORNERS[current - 1]} -> {idx_tip[:2]}")
+                        print(f"  角落 {current}/4: {self.CORNERS[current - 1]} -> {idx_tip[:2]}")
                 elif key == ord("q"):
-                    print("Calibration cancelled.")
+                    print("校准已取消。")
                     break
         finally:
             cap.release()
@@ -72,7 +72,7 @@ class CalibrationHelper:
         if len(detected) == 4:
             self._save_calibration(detected, screen)
         else:
-            print("Calibration incomplete. Keeping existing config.")
+            print("校准未完成，保留现有配置。")
 
     @staticmethod
     def _get_screen_size():
@@ -92,5 +92,5 @@ class CalibrationHelper:
         }
         with open(self.config_path, "w", encoding="utf-8") as f:
             json.dump(config, f, indent=2)
-        print(f"Calibration saved to {self.config_path}")
+        print(f"校准已保存到 {self.config_path}")
 

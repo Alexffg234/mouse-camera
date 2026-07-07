@@ -51,6 +51,7 @@ class GestureRecognizer:
         self._pinch_start: Optional[float] = None
         self._palm_center_history: deque = deque(maxlen=15)
         self._prev_gesture: str = ""
+        self._stable_gesture: str = ""
 
     def recognize(self, landmarks: HandLandmarks, timestamp: float = 0.0) -> str:
         raw = self._classify(landmarks, timestamp)
@@ -147,3 +148,13 @@ class GestureRecognizer:
             self._palm_center_history.clear()
             return "swipe_up"
         return None
+
+    def get_previous_gesture(self) -> str:
+        return self._prev_gesture
+
+    def get_stable_gesture(self) -> str:
+        return self._stable_gesture
+
+    def set_stable_gesture(self, gesture: str):
+        """Called from main.py when a gesture has been stable for transition detection."""
+        self._stable_gesture = gesture

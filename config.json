@@ -1,12 +1,29 @@
 {
   "gesture_mouse_map": {
-    "move_cursor":  { "gesture": "index_finger",    "landmark": "index_tip" },
-    "left_click":   { "gesture": "pinch",           "threshold": 0.15 },
-    "right_click":  { "gesture": "ok_sign" },
-    "double_click": { "gesture": "fist",            "hold_ms": 800 },
-    "scroll_up":    { "gesture": "two_fingers",     "direction": "up" },
-    "scroll_down":  { "gesture": "two_fingers",     "direction": "down" },
-    "drag":         { "gesture": "pinch_hold" }
+    "move_cursor": {
+      "trigger": { "from": "index_finger", "to": "index_finger", "mode": "follow", "landmark": "index_tip" }
+    },
+    "left_click": {
+      "trigger": { "from": "pinch", "to": "pinch", "mode": "instant", "threshold": 0.15 }
+    },
+    "right_click": {
+      "trigger": { "from": "ok_sign", "to": "ok_sign", "mode": "instant" }
+    },
+    "double_click": {
+      "trigger": { "from": "fist", "to": "fist", "mode": "hold", "hold_ms": 800 }
+    },
+    "scroll_up": {
+      "trigger": { "from": "two_fingers", "to": "two_fingers", "mode": "swipe", "swipe_direction": "up" }
+    },
+    "scroll_down": {
+      "trigger": { "from": "two_fingers", "to": "two_fingers", "mode": "swipe", "swipe_direction": "down" }
+    },
+    "drag": {
+      "trigger": { "from": "pinch_hold", "to": "pinch_hold", "mode": "follow", "landmark": "index_tip" }
+    },
+    "show_desktop": {
+      "trigger": { "from": "open_palm", "to": "fist", "mode": "transition", "timeout_ms": 2000 }
+    }
   },
   "sensitivity": {
     "cursor_speed": 1.5,

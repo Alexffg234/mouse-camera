@@ -13,8 +13,18 @@ class GestureMapper:
 
     VALID_ACTIONS = [
         "move_cursor", "left_click", "right_click", "double_click",
-        "scroll_up", "scroll_down", "drag",
+        "scroll_up", "scroll_down", "drag", "show_desktop",
     ]
+
+    VALID_MODES = ["instant", "hold", "follow", "swipe", "transition"]
+
+    MODE_REQUIRED_PARAMS = {
+        "instant": [],
+        "hold": ["hold_ms"],
+        "follow": ["landmark"],
+        "swipe": ["swipe_direction"],
+        "transition": ["timeout_ms"],
+    }
 
     def __init__(self, config_path="config.json"):
         self._config_path = config_path
@@ -32,23 +42,30 @@ class GestureMapper:
 
     def _validate(self):
         gm = self._config.get("gesture_mouse_map", {})
-        for action, mapping in gm.items():
+        for action, cfg in gm.items():
             if action not in self.VALID_ACTIONS:
-                raise ValueError(
-                    f"Unknown action '{action}'. Valid: {self.VALID_ACTIONS}"
-                )
-            gesture = mapping.get("gesture", "")
-            if gesture not in self.SUPPORTED_GESTURES:
-                raise ValueError(
-                    f"Unknown gesture '{gesture}' for action '{action}'. "
-                    f"Valid: {self.SUPPORTED_GESTURES}"
-                )
-            threshold = mapping.get("threshold")
+                raise ValueError(f"Unknown action '{action}'. Valid: {self.VALID_ACTIONS}")
+            tr = cfg.get("trigger", {})
+            mode = tr.get("mode", "")
+            if mode not in self.VALID_MODES:
+                raise ValueError(f"Invalid mode '{mode}' for '{action}'. Valid: {self.VALID_MODES}")
+            from_g = tr.get("from", "")
+            to_g = tr.get("to", "")
+            if from_g not in self.SUPPORTED_GESTURES:
+                raise ValueError(f"Invalid gesture '{from_g}' for '{action}'")
+            if to_g not in self.SUPPORTED_GESTURES:
+                raise ValueError(f"Invalid gesture '{to_g}' for '{action}'")
+            if mode == "transition" and from_g == to_g:
+                raise ValueError(f"transition mode requires from != to for '{action}'")
+            threshold = tr.get("threshold")
             if threshold is not None and threshold <= 0:
                 raise ValueError(f"threshold must be > 0 for '{action}'")
-            hold_ms = mapping.get("hold_ms")
+            hold_ms = tr.get("hold_ms")
             if hold_ms is not None and hold_ms <= 0:
                 raise ValueError(f"hold_ms must be > 0 for '{action}'")
+            landmark = tr.get("landmark")
+            if landmark and landmark not in ("index_tip", "middle_tip", "palm_center"):
+                raise ValueError(f"Invalid landmark '{landmark}' for '{action}'")
 
         sensitivity = self._config.get("sensitivity", {})
         sf = sensitivity.get("smoothing_factor", 0.3)
@@ -81,14 +98,43 @@ class GestureMapper:
 
     # --- lookups ---
 
-    def get_action_for_gesture(self, gesture_name):
-        for action_name, mapping in self._config.get("gesture_mouse_map", {}).items():
-            if mapping["gesture"] == gesture_name:
-                return action_name
-        return None
+    def get_actions_for_gesture(self, gesture_name):
+        """Return all actions whose trigger involves this gesture."""
+        result = []
+        for action_name, cfg in self._config.get("gesture_mouse_map", {}).items():
+            tr = cfg.get("trigger", {})
+            if tr.get("from") == gesture_name or tr.get("to") == gesture_name:
+                result.append(action_name)
+        return result
 
     def get_action_params(self, action_name):
         return self._config.get("gesture_mouse_map", {}).get(action_name, {})
+
+    def get_trigger(self, action_name):
+        return self._config.get("gesture_mouse_map", {}).get(action_name, {}).get("trigger", {})
+
+    def get_transitions(self):
+        """Return all transition-mode triggers as list of (from, to, action, timeout_ms)."""
+        result = []
+        for action_name, cfg in self._config.get("gesture_mouse_map", {}).items():
+            tr = cfg.get("trigger", {})
+            if tr.get("mode") == "transition":
+                result.append({
+                    "from": tr["from"],
+                    "to": tr["to"],
+                    "action": action_name,
+                    "timeout_ms": tr.get("timeout_ms", 2000),
+                })
+        return result
+
+    def get_follow_actions(self):
+        """Return all follow-mode trigger actions."""
+        result = []
+        for action_name, cfg in self._config.get("gesture_mouse_map", {}).items():
+            tr = cfg.get("trigger", {})
+            if tr.get("mode") == "follow":
+                result.append(action_name)
+        return result
 
     def get_config(self):
         return self._config
