@@ -42,6 +42,10 @@
     "config_hot_reload": true,
     "user_lock_timeout_ms": 3000
   },
+  "recognizer": {
+    "finger_margin": 1.05,
+    "stability_frames": 3
+  },
   "multi_angle": {
     "use_3d_depth": true,
     "palm_orientation_threshold_deg": 60

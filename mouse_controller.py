@@ -50,6 +50,9 @@ class MouseController:
             "scroll_down": self._scroll_down,
             "drag": self._drag,
             "show_desktop": self._show_desktop,
+            "copy": self._copy,
+            "paste": self._paste,
+            "cut": self._cut,
         }.get(action)
 
         if handler:
@@ -95,6 +98,24 @@ class MouseController:
         user32.keybd_event(0x44, 0, 0, 0)
         user32.keybd_event(0x44, 0, KEYEVENTF_KEYUP, 0)
         user32.keybd_event(0x5B, 0, KEYEVENTF_KEYUP, 0)
+
+    def _copy(self, *_):
+        user32.keybd_event(0x11, 0, 0, 0)
+        user32.keybd_event(0x43, 0, 0, 0)
+        user32.keybd_event(0x43, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(0x11, 0, KEYEVENTF_KEYUP, 0)
+
+    def _paste(self, *_):
+        user32.keybd_event(0x11, 0, 0, 0)
+        user32.keybd_event(0x56, 0, 0, 0)
+        user32.keybd_event(0x56, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(0x11, 0, KEYEVENTF_KEYUP, 0)
+
+    def _cut(self, *_):
+        user32.keybd_event(0x11, 0, 0, 0)
+        user32.keybd_event(0x58, 0, 0, 0)
+        user32.keybd_event(0x58, 0, KEYEVENTF_KEYUP, 0)
+        user32.keybd_event(0x11, 0, KEYEVENTF_KEYUP, 0)
 
     def _scroll_up(self, *_):
         speed = self._sensitivity.get("scroll_speed", 3)

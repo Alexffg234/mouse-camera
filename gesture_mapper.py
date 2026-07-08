@@ -14,6 +14,7 @@ class GestureMapper:
     VALID_ACTIONS = [
         "move_cursor", "left_click", "right_click", "double_click",
         "scroll_up", "scroll_down", "drag", "show_desktop",
+        "copy", "paste", "cut",
     ]
 
     VALID_MODES = ["instant", "hold", "follow", "swipe", "transition"]
@@ -138,3 +139,8 @@ class GestureMapper:
 
     def get_config(self):
         return self._config
+
+    def set_config(self, config: dict):
+        """Replace current config with a new one, with validation."""
+        self._config = config
+        self._validate()

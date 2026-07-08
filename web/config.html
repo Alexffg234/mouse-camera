@@ -214,8 +214,10 @@
               <div class="mb-3">
                 <span class="font-medium text-sm">{{ actionLabels[action] }}</span>
                 <code class="ml-2 text-gray-500 text-xs">{{ action }}</code>
+                <button v-if="!config.gesture_mouse_map[action]" @click="ensureConfig(action)" class="ml-2 px-2 py-0.5 bg-green-700 hover:bg-green-600 rounded text-xs transition cursor-pointer">启用</button>
               </div>
 
+              <template v-if="config.gesture_mouse_map[action]">
               <div class="flex items-center gap-3 mb-3">
                 <label class="text-gray-400 text-xs w-16">触发模式</label>
                 <select v-model="config.gesture_mouse_map[action].trigger.mode" class="select-sm w-40">
@@ -284,6 +286,7 @@
 
                 <input type="hidden" :value="config.gesture_mouse_map[action].trigger.to">
               </div>
+              </template>
             </div>
           </div>
         </div>
@@ -334,6 +337,39 @@
               <div class="flex justify-between text-gray-500 text-xs mt-1">
                 <span>更平滑(延迟高)</span><span>更灵敏(抖动)</span>
               </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tab: Recognition -->
+      <div v-show="activeTab === 'recognition'">
+        <div class="bg-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-1">识别设置</h2>
+          <p class="text-gray-400 text-sm mb-6">调节手势识别灵敏度和稳定性</p>
+
+          <div class="space-y-8 max-w-lg">
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-sm font-medium">手指伸展阈值</label>
+                <span class="text-blue-400 text-sm font-mono">{{ recog.finger_margin.toFixed(2) }}</span>
+              </div>
+              <input type="range" min="1.0" max="1.2" step="0.01" v-model.number="recog.finger_margin">
+              <div class="flex justify-between text-gray-500 text-xs mt-1">
+                <span>更容易判定伸展</span><span>更严格</span>
+              </div>
+              <p class="text-gray-500 text-xs mt-2">如果 OK 和捏合容易混淆，尝试调大此值（更严格）</p>
+            </div>
+            <div>
+              <div class="flex justify-between mb-2">
+                <label class="text-sm font-medium">稳定帧数</label>
+                <span class="text-blue-400 text-sm font-mono">{{ recog.stability_frames }}</span>
+              </div>
+              <input type="range" min="1" max="7" step="1" v-model.number="recog.stability_frames">
+              <div class="flex justify-between text-gray-500 text-xs mt-1">
+                <span>1 更灵敏(抖动)</span><span>7 更稳定(延迟)</span>
+              </div>
+              <p class="text-gray-500 text-xs mt-2">增加帧数可以减少手势闪烁，但会略微增加延迟</p>
             </div>
           </div>
         </div>
@@ -470,6 +506,7 @@
           move_cursor: '移动光标', left_click: '左键点击', right_click: '右键点击',
           double_click: '双击', scroll_up: '向上滚动', scroll_down: '向下滚动',
           drag: '拖拽', show_desktop: '显示桌面',
+          copy: '复制 (Ctrl+C)', paste: '粘贴 (Ctrl+V)', cut: '剪切 (Ctrl+X)',
         };
 
         const tutorialSteps = [
@@ -550,6 +587,7 @@
         const tabs = [
           { key: 'gesture', label: '手势绑定' },
           { key: 'sensitivity', label: '灵敏度' },
+          { key: 'recognition', label: '识别' },
           { key: 'calibration', label: '校准' },
           { key: 'tracking', label: '追踪' },
           { key: 'import_export', label: '导入/导出' },
@@ -592,6 +630,26 @@
         const supportedGestures = computed(() => metadata.value.supported_gestures);
         const validActions = computed(() => metadata.value.valid_actions);
         const sens = computed(() => config.value.sensitivity || {});
+        function ensureConfig(action) {
+          if (!config.value.gesture_mouse_map[action]) {
+            config.value.gesture_mouse_map[action] = {
+              trigger: { from: 'open_palm', to: 'open_palm', mode: 'instant' },
+            };
+          }
+          return config.value.gesture_mouse_map[action];
+        }
+
+        function ensureRecognizer() {
+          if (!config.value.recognizer) {
+            config.value.recognizer = { finger_margin: 1.05, stability_frames: 3 };
+          }
+          const r = config.value.recognizer;
+          if (r.finger_margin == null) r.finger_margin = 1.05;
+          if (r.stability_frames == null) r.stability_frames = 3;
+          return r;
+        }
+
+        const recog = computed(() => ensureRecognizer());
 
         const unusedGestures = computed(() => {
           const used = new Set();
@@ -842,9 +900,9 @@
         return {
           config, metadata, saving, toast, activeTab, tabs,
           gestureLabels, actionLabels, supportedGestures, validActions,
-          sens, unusedGestures, configText, defaultConfig,
+          sens, recog, unusedGestures, configText, defaultConfig,
           modeInfo, modeLabel, modeColorClass, swipeDirLabel, availableModes,
-          saveConfig, resetConfig, exportJSON, importJSON, syncTo,
+          saveConfig, resetConfig, exportJSON, importJSON, syncTo, ensureConfig,
           showTutorial, tutorialStep, tutorialSteps, dismissTutorial, hideTutorial,
           cameraStatus, detectedGesture, gestureSuccess,
           currentStepTarget, currentStepRequiresGesture,

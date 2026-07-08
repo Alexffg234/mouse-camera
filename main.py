@@ -18,20 +18,24 @@ if sys.platform == "win32":
 
 
 def draw_overlay(frame, gesture: str, action: str, hold_progress: float,
-                 user_status: dict, fps: float, transitions: list):
+                 user_status: dict, fps: float, transitions: list,
+                 confidence: float = 1.0):
     h, w = frame.shape[:2]
     y = 30
     line_h = 25
 
     if gesture:
-        cv2.putText(frame, f"手势: {gesture}", (10, y),
+        conf_text = f" ({confidence:.0%})" if confidence < 1.0 else ""
+        cv2.putText(frame, f"手势: {gesture}{conf_text}", (10, y),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         y += line_h
 
     if action:
+        color = _action_color(action)
         cv2.putText(frame, f"操作: {action}", (10, y),
-                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, color, 2)
         y += line_h
+        _draw_action_indicator(frame, action, w, h)
 
     if hold_progress > 0:
         bar_w = min(int(hold_progress * 200), 200)
@@ -56,6 +60,50 @@ def draw_overlay(frame, gesture: str, action: str, hold_progress: float,
                 cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
 
+def _action_color(action: str) -> tuple:
+    colors = {
+        "left_click": (255, 255, 0),
+        "right_click": (0, 255, 255),
+        "double_click": (255, 165, 0),
+        "scroll_up": (186, 85, 211),
+        "scroll_down": (186, 85, 211),
+        "copy": (0, 255, 0),
+        "paste": (144, 238, 144),
+        "cut": (255, 105, 180),
+        "drag": (200, 200, 0),
+        "show_desktop": (255, 0, 255),
+    }
+    return colors.get(action, (255, 255, 0))
+
+
+def _draw_action_indicator(frame, action: str, w: int, h: int):
+    cx, cy = w - 60, h - 80
+    radius = 25
+
+    indicators = {
+        "left_click": {"symbol": "L", "color": (255, 255, 0)},
+        "right_click": {"symbol": "R", "color": (0, 255, 255)},
+        "double_click": {"symbol": "D", "color": (255, 165, 0)},
+        "scroll_up": {"symbol": "↑", "color": (186, 85, 211)},
+        "scroll_down": {"symbol": "↓", "color": (186, 85, 211)},
+        "copy": {"symbol": "C", "color": (0, 255, 0)},
+        "paste": {"symbol": "V", "color": (144, 238, 144)},
+        "cut": {"symbol": "X", "color": (255, 105, 180)},
+        "drag": {"symbol": "⇔", "color": (200, 200, 0)},
+        "show_desktop": {"symbol": "⬚", "color": (255, 0, 255)},
+    }
+
+    info = indicators.get(action)
+    if not info:
+        return
+
+    color = info["color"]
+    cv2.circle(frame, (cx, cy), radius, color, 2)
+    cv2.circle(frame, (cx, cy), radius - 2, (*[c // 4 for c in color],), -1)
+    cv2.putText(frame, info["symbol"], (cx - 10, cy + 5),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.8, color, 2)
+
+
 def main():
     print("手势鼠标控制 — 按 Q 退出，按 C 校准")
 
@@ -70,7 +118,10 @@ def main():
         min_detection_confidence=tr.get("min_hand_confidence", 0.5),
         min_tracking_confidence=tr.get("min_tracking_confidence", 0.5),
     )
-    recognizer = GestureRecognizer()
+    recognizer_cfg = config.get("recognizer", {})
+    recognizer = GestureRecognizer(
+        finger_margin=recognizer_cfg.get("finger_margin", 1.05),
+    )
     mouse_ctrl = MouseController(config)
     user_trk = UserTracker(lock_timeout_ms=tr.get("user_lock_timeout_ms", 3000))
 
@@ -197,7 +248,8 @@ def main():
                 prev_stable_gesture = ""
 
             draw_overlay(frame, current_gesture, current_action, hold_progress,
-                         user_trk.get_status(), fps, trans_info)
+                         user_trk.get_status(), fps, trans_info,
+                         recognizer.get_confidence())
 
             cv2.imshow("Camera Mouse Control", frame)
             key = cv2.waitKey(1) & 0xFF

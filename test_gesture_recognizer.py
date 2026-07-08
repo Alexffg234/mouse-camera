@@ -186,6 +186,59 @@ class TestGestureRecognizer(unittest.TestCase):
         self.assertGreater(hw, 0.1)
         self.assertAlmostEqual(hw, 0.2121, places=3)
 
+    def test_ok_sign(self):
+        """OK sign: index curled, thumb forms loop, middle/ring/pinky extended."""
+        lms = {
+            0: (0.5, 0.95, 0.0),
+            2: (0.55, 0.88, 0.0),
+            3: (0.48, 0.75, 0.02),
+            4: (0.5, 0.55, 0.08),
+            5: (0.42, 0.75, 0.0),
+            6: (0.41, 0.65, 0.0),
+            8: (0.43, 0.68, 0.02),
+            9: (0.5, 0.75, 0.0),
+            10: (0.5, 0.65, 0.0),
+            12: (0.5, 0.48, -0.06),
+            13: (0.58, 0.75, 0.0),
+            14: (0.58, 0.65, 0.0),
+            16: (0.59, 0.48, -0.06),
+            17: (0.65, 0.75, 0.0),
+            18: (0.65, 0.65, 0.0),
+            20: (0.67, 0.48, -0.06),
+        }
+        hand = _make_hand(lms)
+        gr = GestureRecognizer(stability_frames=1)
+        self.assertEqual(gr.recognize(hand), "ok_sign")
+
+    def test_confidence(self):
+        gr = GestureRecognizer(stability_frames=1)
+        gr.recognize(self._make_open_palm())
+        conf = gr.get_confidence()
+        self.assertAlmostEqual(conf, 0.9)
+
+    def test_finger_margin_param(self):
+        """Higher finger_margin makes extended detection harder."""
+        lms = {
+            0: (0.5, 0.9, 0.0),
+            2: (0.55, 0.85, 0.0),
+            5: (0.45, 0.7, 0.0),
+            6: (0.44, 0.6, 0.0),
+            8: (0.42, 0.45, -0.05),
+            9: (0.5, 0.7, 0.0),
+            10: (0.5, 0.6, 0.0),
+            12: (0.5, 0.45, -0.05),
+            13: (0.57, 0.7, 0.0),
+            14: (0.57, 0.6, 0.0),
+            16: (0.57, 0.45, -0.05),
+            17: (0.63, 0.7, 0.0),
+            18: (0.63, 0.6, 0.0),
+            20: (0.63, 0.45, -0.05),
+        }
+        # Default margin: all 4 fingers extended
+        self.assertTrue(_finger_extended(lms, 8, 6, 1.05))
+        # Very high margin: not extended
+        self.assertFalse(_finger_extended(lms, 8, 6, 2.0))
+
 
 class TestUserTracker(unittest.TestCase):
     def test_selects_nearest(self):
