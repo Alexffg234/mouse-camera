@@ -57,6 +57,8 @@ class CameraWorker(QThread):
         self._cap = cv2.VideoCapture(0)
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+        self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize queued frames
+        self._cap.set(cv2.CAP_PROP_FPS, 30)
 
         if not self._cap.isOpened():
             self.error_occurred.emit("无法打开摄像头")
@@ -73,6 +75,7 @@ class CameraWorker(QThread):
             while self._running:
                 ret, frame = self._cap.read()
                 if not ret:
+                    # cap.read() returns False after release() is called from stop()
                     break
 
                 now = time.time()
@@ -84,8 +87,8 @@ class CameraWorker(QThread):
                     self._config = self._mapper.get_config()
                     self._mouse_ctrl.update_config(self._config)
 
-                # Hand tracking
-                all_hands = self._tracker.process(frame)
+                # Hand tracking (VIDEO mode: pass ms timestamp)
+                all_hands = self._tracker.process(frame, timestamp_ms=int(now * 1000))
                 selected = self._user_trk.select_hand(all_hands)
 
                 current_gesture = ""
@@ -96,6 +99,7 @@ class CameraWorker(QThread):
 
                 if selected:
                     self._tracker.draw(frame, [selected])
+                    # Stable recognition for action triggers (instant/hold/transition)
                     current_gesture = self._recognizer.recognize(selected, now)
                     confidence = self._recognizer.get_confidence()
                     current_time_ms = now * 1000
@@ -126,10 +130,11 @@ class CameraWorker(QThread):
                     gm = self._config.get("gesture_mouse_map", {})
                     follow_actions = self._mapper.get_follow_actions()
 
-                    # Follow mode
+                    # Follow mode: use raw gesture (no stability filter) for low latency
+                    raw_gesture = self._recognizer.get_raw_gesture()
                     for action_name in follow_actions:
                         trigger = self._mapper.get_trigger(action_name)
-                        if trigger["from"] == current_gesture:
+                        if trigger["from"] == raw_gesture:
                             landmark = trigger.get("landmark", "index_tip")
                             tip_id = TIP_MAP.get(landmark, 8)
                             pos = selected.get(tip_id)
@@ -193,7 +198,10 @@ class CameraWorker(QThread):
 
     def stop(self):
         self._running = False
-        self.wait()
+        # Release the camera to unblock cap.read() so the thread can exit
+        if self._cap:
+            self._cap.release()
+            self._cap = None
 
     def start_calibration(self):
         """Emit signal to main thread to run calibration interactively."""

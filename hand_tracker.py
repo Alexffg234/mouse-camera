@@ -25,29 +25,72 @@ class HandLandmarks:
         return self.landmarks.get(idx)
 
 
+def _make_options(
+    delegate,
+    model_path,
+    max_hands,
+    min_detection_confidence,
+    min_tracking_confidence,
+):
+    return _hl.HandLandmarkerOptions(
+        base_options=_base.BaseOptions(
+            model_asset_path=model_path,
+            delegate=delegate,
+        ),
+        num_hands=max_hands,
+        min_hand_detection_confidence=min_detection_confidence,
+        min_tracking_confidence=min_tracking_confidence,
+        running_mode=_vtm.VisionTaskRunningMode.VIDEO,
+    )
+
+
 class HandTracker:
+    _gpu_available = None  # cached after first check
+
     def __init__(
         self,
         max_hands: int = 2,
         min_detection_confidence: float = 0.5,
         min_tracking_confidence: float = 0.5,
         model_complexity: int = 1,
+        use_gpu: bool = True,
     ):
-        options = _hl.HandLandmarkerOptions(
-            base_options=_base.BaseOptions(model_asset_path=_MODEL_PATH),
-            num_hands=max_hands,
-            min_hand_detection_confidence=min_detection_confidence,
-            min_tracking_confidence=min_tracking_confidence,
-            running_mode=_vtm.VisionTaskRunningMode.IMAGE,
-        )
-        self.detector = _hl.HandLandmarker.create_from_options(options)
-        self.connections = _hl.HandLandmarksConnections
+        # Try GPU first, fall back to CPU
+        if use_gpu:
+            try:
+                gpu_opts = _make_options(
+                    _base.BaseOptions.Delegate.GPU,
+                    _MODEL_PATH, max_hands,
+                    min_detection_confidence, min_tracking_confidence,
+                )
+                self.detector = _hl.HandLandmarker.create_from_options(gpu_opts)
+                HandTracker._gpu_available = True
+                print("[GPU] 已启用 GPU delegate")
+            except Exception:
+                HandTracker._gpu_available = False
+                print("[GPU] 不可用，使用 CPU")
+                gpu_opts = None
 
-    def process(self, frame_bgr: np.ndarray) -> List[HandLandmarks]:
+        if not gpu_opts:
+            options = _make_options(
+                _base.BaseOptions.Delegate.CPU,
+                _MODEL_PATH, max_hands,
+                min_detection_confidence, min_tracking_confidence,
+            )
+            self.detector = _hl.HandLandmarker.create_from_options(options)
+
+        self.connections = _hl.HandLandmarksConnections
+        self._frame_ts = 0
+
+    def process(self, frame_bgr: np.ndarray, timestamp_ms: Optional[int] = None) -> List[HandLandmarks]:
         frame_rgb = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
         mp_image = _img.Image(image_format=_img.ImageFormat.SRGB, data=frame_rgb)
 
-        result = self.detector.detect(mp_image)
+        if timestamp_ms is None:
+            self._frame_ts += 16
+            timestamp_ms = self._frame_ts
+
+        result = self.detector.detect_for_video(mp_image, timestamp_ms)
         if not result.hand_landmarks:
             return []
 
@@ -96,4 +139,4 @@ class HandTracker:
         ]
 
     def close(self):
-        self.detector.__del__()
+        pass  # let GC handle cleanup; MediaPipe singletons can't be re-created

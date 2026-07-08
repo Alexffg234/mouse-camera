@@ -156,8 +156,8 @@ def main():
                 mouse_ctrl.update_config(config)
                 print("[热加载] config.json 已更新")
 
-            # Hand tracking
-            all_hands = tracker.process(frame)
+            # Hand tracking (VIDEO mode: pass ms timestamp)
+            all_hands = tracker.process(frame, timestamp_ms=int(now * 1000))
             selected = user_trk.select_hand(all_hands)
 
             current_gesture = ""
@@ -167,6 +167,7 @@ def main():
 
             if selected:
                 tracker.draw(frame, [selected])
+                # Stable recognition for action triggers (instant/hold/transition)
                 current_gesture = recognizer.recognize(selected, now)
                 current_time_ms = now * 1000
 
@@ -192,11 +193,12 @@ def main():
                 # --- Process all triggers by mode ---
                 gm = config.get("gesture_mouse_map", {})
 
-                # Follow mode: continuous landmark tracking
+                # Follow mode: use raw gesture (no stability filter) for low latency
                 follow_actions = mapper.get_follow_actions()
+                raw_gesture = recognizer.get_raw_gesture()
                 for action_name in follow_actions:
                     trigger = mapper.get_trigger(action_name)
-                    if trigger["from"] == current_gesture:
+                    if trigger["from"] == raw_gesture:
                         landmark = trigger.get("landmark", "index_tip")
                         tip_id = TIP_MAP.get(landmark, 8)
                         pos = selected.get(tip_id)

@@ -77,6 +77,13 @@ class GestureRecognizer:
         self._confidence = conf
         return vote
 
+    def get_raw_gesture(self) -> str:
+        """Return the most recent raw classification (latest item in history).
+        Used by follow mode for low-latency cursor tracking."""
+        if self._history:
+            return self._history[-1]
+        return ""
+
     def get_confidence(self) -> float:
         return self._confidence
 

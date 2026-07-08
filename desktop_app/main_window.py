@@ -170,6 +170,7 @@ class MainWindow(QMainWindow):
     def _toggle_camera(self):
         if self._worker and self._worker.isRunning():
             self._worker.stop()
+            self._worker.wait(2000)
             self.camera_view.show_message("摄像头已停止")
         else:
             self._start_camera()
@@ -193,5 +194,5 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         if self._worker:
             self._worker.stop()
-            self._worker.wait()
+            self._worker.wait(2000)
         event.accept()

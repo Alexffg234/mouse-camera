@@ -28,7 +28,7 @@
   "sensitivity": {
     "cursor_speed": 1.5,
     "scroll_speed": 3,
-    "smoothing_factor": 0.3
+    "smoothing_factor": 0.55
   },
   "calibration": {
     "min_x": 0, "max_x": 1920,
