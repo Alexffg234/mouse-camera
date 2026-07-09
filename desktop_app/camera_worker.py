@@ -55,7 +55,12 @@ class CameraWorker(QThread):
 
     def run(self):
         self._running = True
-        self._cap = cv2.VideoCapture(0)
+        # Try opening camera with retry in case OS hasn't released the device yet
+        for attempt in range(5):
+            self._cap = cv2.VideoCapture(0)
+            if self._cap.isOpened():
+                break
+            time.sleep(0.2)  # wait for OS to release
         self._cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self._cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
         self._cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # minimize queued frames
@@ -217,8 +222,11 @@ class CameraWorker(QThread):
             self.stopped.emit()
 
     def stop(self):
+        if not self._running:
+            return
         self._running = False
-        # Release the camera to unblock cap.read() so the thread can exit
+        # Use quitAndWait is not available, so signal the thread to exit
+        # and release camera from THIS thread to avoid cross-thread issues
         if self._cap:
             self._cap.release()
             self._cap = None

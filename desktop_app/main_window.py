@@ -119,6 +119,21 @@ class MainWindow(QMainWindow):
         self.camera_btn.setText("停止摄像头")
         self.camera_btn.setStyleSheet("padding: 6px 20px; background: #ef4444; color: #fff; border-radius: 6px; font-weight: bold;")
 
+    def _stop_camera(self):
+        if not self._worker or not self._worker.isRunning():
+            return
+        self._worker.stop()
+        self._worker.wait(3000)
+        # Disconnect signals so old worker doesn't interfere
+        try:
+            self._worker.frame_ready.disconnect()
+            self._worker.gesture_update.disconnect()
+            self._worker.error_occurred.disconnect()
+        except TypeError:
+            pass  # already disconnected
+        self._worker = None
+        self.camera_view.show_message("摄像头已停止")
+
     def _on_gesture_update(self, gesture, action, confidence, hold_progress, user_status, fps):
         now = time.time()
         if now - self._last_ui_update < 0.1:
@@ -273,9 +288,7 @@ class MainWindow(QMainWindow):
 
     def _toggle_camera(self):
         if self._worker and self._worker.isRunning():
-            self._worker.stop()
-            self._worker.wait(2000)
-            self.camera_view.show_message("摄像头已停止")
+            self._stop_camera()
         else:
             self._start_camera()
 
