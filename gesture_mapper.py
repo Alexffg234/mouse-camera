@@ -1,5 +1,6 @@
 import json
 import os
+import time
 
 
 class GestureMapper:
@@ -31,13 +32,18 @@ class GestureMapper:
         self._config_path = config_path
         self._config_mtime = 0.0
         self._config = {}
+        self._last_reload_check = 0.0
         self._load_config()
 
     # --- loading & validation ---
 
     def _load_config(self):
-        with open(self._config_path, "r", encoding="utf-8") as f:
-            self._config = json.load(f)
+        try:
+            with open(self._config_path, "r", encoding="utf-8") as f:
+                self._config = json.load(f)
+        except (PermissionError, OSError):
+            # Another thread (Flask server) may be writing the file right now
+            return
         self._validate()
         self._config_mtime = os.path.getmtime(self._config_path)
 
@@ -88,12 +94,19 @@ class GestureMapper:
     def check_reload(self):
         if not self._config.get("tracking", {}).get("config_hot_reload", False):
             return False
+        now = time.time()
+        if now - self._last_reload_check < 0.5:
+            return False
+        self._last_reload_check = now
         try:
             mtime = os.path.getmtime(self._config_path)
         except OSError:
             return False
         if mtime != self._config_mtime:
-            self._load_config()
+            try:
+                self._load_config()
+            except (PermissionError, OSError):
+                return False
             return True
         return False
 

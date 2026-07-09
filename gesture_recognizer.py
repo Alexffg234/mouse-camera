@@ -61,10 +61,12 @@ class GestureRecognizer:
         self._stability = stability_frames
         self._finger_margin = finger_margin
         self._pinch_start: Optional[float] = None
+        self._pinch_active: bool = False
         self._palm_center_history: deque = deque(maxlen=15)
         self._prev_gesture: str = ""
         self._stable_gesture: str = ""
         self._confidence: float = 1.0
+        self._prev_raw_gesture: str = ""
 
     def recognize(self, landmarks: HandLandmarks, timestamp: float = 0.0) -> str:
         raw, conf = self._classify(landmarks, timestamp)
@@ -79,9 +81,16 @@ class GestureRecognizer:
 
     def get_raw_gesture(self) -> str:
         """Return the most recent raw classification (latest item in history).
-        Used by follow mode for low-latency cursor tracking."""
+        Requires 2 consecutive different frames to switch away from the current
+        raw gesture, avoiding single-frame flicker in follow mode."""
         if self._history:
-            return self._history[-1]
+            current_raw = self._history[-1]
+            if current_raw != self._prev_raw_gesture:
+                # Need one more frame to confirm the switch
+                if len(self._history) >= 2 and self._history[-2] != self._prev_raw_gesture:
+                    self._prev_raw_gesture = current_raw
+                return self._prev_raw_gesture
+            return current_raw
         return ""
 
     def get_confidence(self) -> float:
@@ -98,17 +107,24 @@ class GestureRecognizer:
         pinch_dist = _dist_3d(lms[4], lms[8])
         hw = _hand_width(lms)
         pinch_threshold = 0.08 + hw * 0.15
+        pinch_release = pinch_threshold * 1.25  # hysteresis gap
 
-        # pinch_hold / pinch: thumb tip close to index tip
-        if pinch_dist < pinch_threshold:
-            pinch_conf = max(0.0, 1.0 - pinch_dist / pinch_threshold) if pinch_threshold > 0 else 0.0
-            if self._pinch_start is None:
-                self._pinch_start = ts
-            elif ts - self._pinch_start > 0.3:
-                return "pinch_hold", pinch_conf
-            return "pinch", pinch_conf
+        # pinch_hold / pinch: thumb tip close to index tip (hysteresis)
+        if self._pinch_active:
+            if pinch_dist < pinch_release:
+                pinch_conf = max(0.0, 1.0 - pinch_dist / pinch_threshold) if pinch_threshold > 0 else 0.0
+                if ts - self._pinch_start > 0.3:
+                    return "pinch_hold", pinch_conf
+                return "pinch", pinch_conf
+            else:
+                self._pinch_active = False
+                self._pinch_start = None
         else:
-            self._pinch_start = None
+            if pinch_dist < pinch_threshold:
+                self._pinch_active = True
+                self._pinch_start = ts
+                pinch_conf = max(0.0, 1.0 - pinch_dist / pinch_threshold) if pinch_threshold > 0 else 0.0
+                return "pinch", pinch_conf
 
         extended = sum([idx_ext, mid_ext, ring_ext, pinky_ext])
 

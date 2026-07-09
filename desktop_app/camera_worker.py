@@ -39,6 +39,7 @@ class CameraWorker(QThread):
             min_tracking_confidence=tr.get("min_tracking_confidence", 0.5),
         )
         self._recognizer = GestureRecognizer(
+            stability_frames=recognizer_cfg.get("stability_frames", 3),
             finger_margin=recognizer_cfg.get("finger_margin", 1.05),
         )
         self._mouse_ctrl = MouseController(self._config)
@@ -67,6 +68,8 @@ class CameraWorker(QThread):
         hold_start: dict[str, float] = {}
         transition_state: dict[str, dict] = {}
         prev_stable_gesture = ""
+        prev_instant_action: str = ""
+        prev_instant_time = 0.0
         prev_time = time.time()
         fps = 30.0
         TIP_MAP = {"index_tip": 8, "middle_tip": 12, "palm_center": 9}
@@ -156,8 +159,12 @@ class CameraWorker(QThread):
                         trigger = action_cfg.get("trigger", {})
                         mode = trigger.get("mode")
                         if mode == "instant" and trigger["from"] == current_gesture:
-                            current_action = action_name
-                            self._mouse_ctrl.execute(action_name, self._mapper.get_action_params(action_name))
+                            # Cooldown: don't fire the same instant action more than once per 200ms
+                            if action_name != prev_instant_action or (now - prev_instant_time) > 0.2:
+                                current_action = action_name
+                                self._mouse_ctrl.execute(action_name, self._mapper.get_action_params(action_name))
+                                prev_instant_action = action_name
+                                prev_instant_time = now
                         elif mode == "hold" and trigger["from"] == current_gesture:
                             if action_name not in hold_start:
                                 hold_start[action_name] = current_time_ms
@@ -171,8 +178,9 @@ class CameraWorker(QThread):
                                 del hold_start[action_name]
                             hold_progress = max(hold_progress, progress)
 
-                    # Stop drag if no follow gesture active
-                    if current_gesture not in (t["from"] for a in follow_actions for t in [self._mapper.get_trigger(a)]):
+                    # Stop drag if no follow gesture active (use raw for consistency with follow mode)
+                    active_follow_gestures = [self._mapper.get_trigger(a)["from"] for a in follow_actions]
+                    if raw_gesture not in active_follow_gestures:
                         self._mouse_ctrl.stop_drag()
 
                     if current_gesture != "none":

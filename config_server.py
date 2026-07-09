@@ -44,6 +44,8 @@ def save_config():
     tmp_path = config_path + ".tmp"
     with open(tmp_path, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+        f.flush()
+        os.fsync(f.fileno())
     os.replace(tmp_path, config_path)
 
     return jsonify({"ok": True})
