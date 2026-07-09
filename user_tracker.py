@@ -30,12 +30,7 @@ class UserTracker:
             self._lock(nearest)
             return nearest
         else:
-            other = [h for h in all_hands if h is not nearest]
-            if other:
-                candidate = min(other, key=lambda h: h.depth)
-                if candidate.depth < nearest.depth:
-                    nearest = candidate
-            return all_hands[0]
+            return nearest
 
     def _lock(self, hand: HandLandmarks):
         self.locked_depth = hand.depth

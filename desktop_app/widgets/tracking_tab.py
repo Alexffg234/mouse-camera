@@ -30,6 +30,12 @@ class TrackingTab(QWidget):
         self.lock_timeout_spin.setValue(tr.get("user_lock_timeout_ms", 3000))
         form.addRow("用户锁定超时 (ms):", self.lock_timeout_spin)
 
+        self.instant_cooldown_spin = QSpinBox()
+        self.instant_cooldown_spin.setRange(50, 1000)
+        self.instant_cooldown_spin.setSingleStep(50)
+        self.instant_cooldown_spin.setValue(tr.get("instant_cooldown_ms", 200))
+        form.addRow("动作冷却 (ms):", self.instant_cooldown_spin)
+
         self.hand_conf_label = QLabel(f"{tr.get('min_hand_confidence', 0.5):.2f}")
         self.hand_conf_label.setStyleSheet("color: #60a5fa; font-family: monospace;")
         self.hand_conf_slider = QSlider(Qt.Orientation.Horizontal)
@@ -68,6 +74,7 @@ class TrackingTab(QWidget):
                 "max_hands": self.max_hands_spin.value(),
                 "debounce_ms": self.debounce_spin.value(),
                 "user_lock_timeout_ms": self.lock_timeout_spin.value(),
+                "instant_cooldown_ms": self.instant_cooldown_spin.value(),
                 "min_hand_confidence": self.hand_conf_slider.value() / 100,
                 "min_tracking_confidence": self.tracking_conf_slider.value() / 100,
                 "config_hot_reload": self.hot_reload_cb.isChecked(),
@@ -84,6 +91,7 @@ class TrackingTab(QWidget):
         self.max_hands_spin.setValue(tr.get("max_hands", 2))
         self.debounce_spin.setValue(tr.get("debounce_ms", 150))
         self.lock_timeout_spin.setValue(tr.get("user_lock_timeout_ms", 3000))
+        self.instant_cooldown_spin.setValue(tr.get("instant_cooldown_ms", 200))
         self.hand_conf_slider.setValue(int(tr.get("min_hand_confidence", 0.5) * 100))
         self.tracking_conf_slider.setValue(int(tr.get("min_tracking_confidence", 0.5) * 100))
         self.hot_reload_cb.setChecked(tr.get("config_hot_reload", True))

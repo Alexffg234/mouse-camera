@@ -74,13 +74,14 @@ class MouseController:
 
         alpha = self._sensitivity.get("smoothing_factor", 0.3)
         speed = self._sensitivity.get("cursor_speed", 1.5)
+        smoothing = min(alpha * speed, 1.0)
 
         if self._smooth_x is None:
             self._smooth_x = screen_x
             self._smooth_y = screen_y
         else:
-            self._smooth_x = alpha * screen_x + (1 - alpha) * self._smooth_x
-            self._smooth_y = alpha * screen_y + (1 - alpha) * self._smooth_y
+            self._smooth_x = smoothing * screen_x + (1 - smoothing) * self._smooth_x
+            self._smooth_y = smoothing * screen_y + (1 - smoothing) * self._smooth_y
 
         pyautogui.moveTo(int(self._smooth_x), int(self._smooth_y))
 

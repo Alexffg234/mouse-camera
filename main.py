@@ -1,6 +1,7 @@
 import os
 import sys
 import time
+from typing import Optional
 
 import cv2
 
@@ -125,6 +126,7 @@ def main():
     )
     mouse_ctrl = MouseController(config)
     user_trk = UserTracker(lock_timeout_ms=tr.get("user_lock_timeout_ms", 3000))
+    instant_cooldown = tr.get("instant_cooldown_ms", 200) / 1000.0
 
     cap = cv2.VideoCapture(0)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
@@ -135,6 +137,7 @@ def main():
         return
 
     hold_start: dict[str, float] = {}
+    hold_fired: set[str] = set()
     transition_state: dict[str, dict] = {}
     prev_stable_gesture = ""
     prev_instant_action: Optional[str] = None
@@ -218,13 +221,20 @@ def main():
                             current_action = action_name
                             mouse_ctrl.execute(action_name, mapper.get_action_params(action_name))
 
+                # Hold mode: clear state when gesture releases
+                for action_name, action_cfg in gm.items():
+                    trigger = action_cfg.get("trigger", {})
+                    if trigger.get("mode") == "hold" and trigger["from"] != current_gesture:
+                        hold_start.pop(action_name, None)
+                        hold_fired.discard(action_name)
+
                 # Instant & Hold mode
                 for action_name, action_cfg in gm.items():
                     trigger = action_cfg.get("trigger", {})
                     mode = trigger.get("mode")
                     if mode == "instant" and trigger["from"] == current_gesture:
                         # Cooldown: don't fire the same instant action more than once per 200ms
-                        if action_name != prev_instant_action or (now - prev_instant_time) > 0.2:
+                        if action_name != prev_instant_action or (now - prev_instant_time) > instant_cooldown:
                             current_action = action_name
                             mouse_ctrl.execute(action_name, mapper.get_action_params(action_name))
                             prev_instant_action = action_name
@@ -235,13 +245,13 @@ def main():
                         elapsed = current_time_ms - hold_start[action_name]
                         hold_ms = trigger.get("hold_ms", 800)
                         progress = min(elapsed / hold_ms, 1.0)
-                        if elapsed >= hold_ms:
+                        if elapsed >= hold_ms and action_name not in hold_fired:
                             current_action = action_name
                             lm_key = trigger.get("landmark", "index_tip")
                             tip_id = TIP_MAP.get(lm_key, 8)
                             pos = selected.get(tip_id)
                             mouse_ctrl.execute(action_name, mapper.get_action_params(action_name), pos)
-                            del hold_start[action_name]
+                            hold_fired.add(action_name)
                         hold_progress = max(hold_progress, progress)
 
                 # Stop drag if no follow gesture active (use raw for consistency with follow mode)
@@ -255,6 +265,9 @@ def main():
 
             else:
                 mouse_ctrl.stop_drag()
+                hold_start.clear()
+                hold_fired.clear()
+                recognizer.reset()
                 prev_stable_gesture = ""
 
             draw_overlay(frame, current_gesture, current_action, hold_progress,

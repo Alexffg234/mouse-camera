@@ -101,7 +101,8 @@
     "user_lock_timeout_ms": 3000,
     "min_hand_confidence": 0.5,
     "min_tracking_confidence": 0.5,
-    "config_hot_reload": true
+    "config_hot_reload": true,
+    "instant_cooldown_ms": 200
   },
   "recognizer": {
     "finger_margin": 1.05,

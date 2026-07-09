@@ -14,12 +14,14 @@ class RecognitionTab(QWidget):
         self.margin_slider.setRange(100, 120)
         r = config.get("recognizer", {})
         self.margin_slider.setValue(int(r.get("finger_margin", 1.05) * 100))
+        self.margin_slider.valueChanged.connect(lambda v: self.margin_label.setText(f"{v / 100:.2f}"))
 
         self.frames_label = QLabel("3")
         self.frames_label.setStyleSheet("color: #60a5fa; font-family: monospace;")
         self.frames_slider = QSlider(Qt.Orientation.Horizontal)
         self.frames_slider.setRange(1, 7)
         self.frames_slider.setValue(r.get("stability_frames", 3))
+        self.frames_slider.valueChanged.connect(lambda v: self.frames_label.setText(str(v)))
 
         form = QFormLayout()
         form.addRow("手指伸展阈值:", self.margin_slider)
@@ -46,4 +48,6 @@ class RecognitionTab(QWidget):
     def load_config(self, config: dict):
         r = config.get("recognizer", {})
         self.margin_slider.setValue(int(r.get("finger_margin", 1.05) * 100))
+        self.margin_label.setText(f"{r.get('finger_margin', 1.05):.2f}")
         self.frames_slider.setValue(r.get("stability_frames", 3))
+        self.frames_label.setText(str(r.get("stability_frames", 3)))

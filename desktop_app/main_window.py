@@ -1,5 +1,6 @@
 import os
 import sys
+import time
 
 from PyQt6.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
                               QSplitter, QTabWidget, QPushButton, QLabel,
@@ -25,6 +26,7 @@ class MainWindow(QMainWindow):
         self._config_manager = config_manager
         self._worker = None
         self._save_timer = None
+        self._last_ui_update = 0.0
 
         self.setWindowTitle("手势鼠标控制")
         self.setMinimumSize(1100, 750)
@@ -118,6 +120,10 @@ class MainWindow(QMainWindow):
         self.camera_btn.setStyleSheet("padding: 6px 20px; background: #ef4444; color: #fff; border-radius: 6px; font-weight: bold;")
 
     def _on_gesture_update(self, gesture, action, confidence, hold_progress, user_status, fps):
+        now = time.time()
+        if now - self._last_ui_update < 0.1:
+            return
+        self._last_ui_update = now
         self.status_bar.update(gesture, action, confidence, hold_progress, user_status, fps)
         if hasattr(self, "_wizard") and self._wizard.isVisible():
             self._wizard.on_gesture(gesture, confidence)
@@ -161,11 +167,109 @@ class MainWindow(QMainWindow):
     def _reset_config(self):
         if QMessageBox.question(self, "确认", "确定恢复默认配置？") != QMessageBox.StandardButton.Yes:
             return
-        self.gesture_tab.load_config(self._config_manager.get_config())
-        self.sens_tab.load_config(self._config_manager.get_config())
-        self.recog_tab.load_config(self._config_manager.get_config())
-        self.calib_tab.load_config(self._config_manager.get_config())
-        self.tracking_tab.load_config(self._config_manager.get_config())
+        default = {
+            "gesture_mouse_map": {
+                "move_cursor": {
+                    "trigger": {
+                        "from": "index_finger",
+                        "to": "index_finger",
+                        "mode": "follow",
+                        "landmark": "index_tip"
+                    }
+                },
+                "left_click": {
+                    "trigger": {
+                        "from": "pinch",
+                        "to": "pinch",
+                        "mode": "instant"
+                    }
+                },
+                "right_click": {
+                    "trigger": {
+                        "from": "ok_sign",
+                        "to": "ok_sign",
+                        "mode": "instant"
+                    }
+                },
+                "double_click": {
+                    "trigger": {
+                        "from": "fist",
+                        "to": "fist",
+                        "mode": "hold",
+                        "hold_ms": 800
+                    }
+                },
+                "scroll_up": {
+                    "trigger": {
+                        "from": "two_fingers",
+                        "to": "two_fingers",
+                        "mode": "swipe",
+                        "swipe_direction": "up"
+                    }
+                },
+                "scroll_down": {
+                    "trigger": {
+                        "from": "two_fingers",
+                        "to": "two_fingers",
+                        "mode": "swipe",
+                        "swipe_direction": "down"
+                    }
+                },
+                "drag": {
+                    "trigger": {
+                        "from": "pinch_hold",
+                        "to": "pinch_hold",
+                        "mode": "follow",
+                        "landmark": "index_tip"
+                    }
+                },
+                "show_desktop": {
+                    "trigger": {
+                        "from": "open_palm",
+                        "to": "fist",
+                        "mode": "transition",
+                        "timeout_ms": 2000
+                    }
+                }
+            },
+            "sensitivity": {
+                "cursor_speed": 1.5,
+                "scroll_speed": 3,
+                "smoothing_factor": 0.55
+            },
+            "calibration": {
+                "min_x": 0,
+                "max_x": 1920,
+                "min_y": 0,
+                "max_y": 1080
+            },
+            "tracking": {
+                "max_hands": 2,
+                "debounce_ms": 150,
+                "user_lock_timeout_ms": 3000,
+                "min_hand_confidence": 0.5,
+                "min_tracking_confidence": 0.5,
+                "config_hot_reload": True,
+                "instant_cooldown_ms": 200
+            },
+            "recognizer": {
+                "finger_margin": 1.05,
+                "stability_frames": 3
+            },
+            "multi_angle": {
+                "use_3d_depth": True,
+                "palm_orientation_threshold_deg": 60
+            }
+        }
+        self._config_manager.set_config(default)
+        self._config_manager.save()
+        if self._worker:
+            self._worker.update_config(self._config_manager.get_config())
+        self.gesture_tab.load_config(default)
+        self.sens_tab.load_config(default)
+        self.recog_tab.load_config(default)
+        self.calib_tab.load_config(default)
+        self.tracking_tab.load_config(default)
 
     def _toggle_camera(self):
         if self._worker and self._worker.isRunning():

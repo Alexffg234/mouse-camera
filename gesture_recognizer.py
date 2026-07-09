@@ -212,3 +212,11 @@ class GestureRecognizer:
 
     def set_stable_gesture(self, gesture: str):
         self._stable_gesture = gesture
+
+    def reset(self):
+        """Clear all internal state when hand disappears."""
+        self._history.clear()
+        self._pinch_active = False
+        self._pinch_start = None
+        self._palm_center_history.clear()
+        self._prev_raw_gesture = ""
